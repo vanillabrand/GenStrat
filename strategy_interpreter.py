@@ -97,7 +97,7 @@ class StrategyInterpreter:
                         {"role": "user", "content": prompt}
                     ]
                 )
-                return response["choices"][0]["message"]["content"]
+                return response.choices[0].message.content
             except openai.error.OpenAIError as e:
                 self.logger.warning(f"Model {model} failed with error: {e}")
                 continue  # Try the next model in the fallback list

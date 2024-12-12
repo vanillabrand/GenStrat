@@ -1,10 +1,12 @@
-# trade_executor.py
-
 import logging
 import asyncio
 
 
 class TradeExecutor:
+    """
+    Executes trades and manages associated risk using stop loss, take profit, and trailing stop orders.
+    """
+
     def __init__(self, exchange, budget_manager, risk_manager, trade_manager):
         self.exchange = exchange
         self.budget_manager = budget_manager
@@ -13,11 +15,15 @@ class TradeExecutor:
         self.logger = logging.getLogger(self.__class__.__name__)
 
     async def execute_trade(self, strategy_name, asset, side, strategy_data, market_type):
+        """
+        Execute a trade and set up risk management orders if applicable.
+        """
         try:
             budget = self.budget_manager.get_budget(strategy_name)
             if budget <= 0:
                 self.logger.error(f"No budget available for strategy '{strategy_name}'.")
                 return
+
             position_size = strategy_data['trade_parameters'].get('position_size', 1)
             risk_params = strategy_data.get('risk_management', {})
             stop_loss = risk_params.get('stop_loss')
@@ -29,6 +35,7 @@ class TradeExecutor:
 
             amount = self.calculate_amount(budget, price, position_size)
             order_type = strategy_data['trade_parameters'].get('order_type', 'market')
+
             order = await self.exchange.create_order(
                 symbol=asset,
                 type=order_type,
@@ -53,8 +60,8 @@ class TradeExecutor:
                 'take_profit': take_profit,
                 'trailing_stop': trailing_stop
             }
-            self.trade_manager.record_trade(trade_record)
 
+            self.trade_manager.record_trade(trade_record)
             self.budget_manager.update_budget(strategy_name, budget - (amount * price))
 
             if stop_loss or take_profit or trailing_stop:
@@ -64,11 +71,17 @@ class TradeExecutor:
             self.logger.error(f"Error executing trade for strategy '{strategy_name}': {e}")
 
     def calculate_amount(self, budget, price, position_size):
+        """
+        Calculate the amount of the asset to trade based on budget and position size.
+        """
         max_amount = budget / price
         amount = min(position_size, max_amount)
         return amount
 
     async def set_risk_management_orders(self, asset, side, amount, entry_price, stop_loss, take_profit, trailing_stop, market_type):
+        """
+        Place stop loss, take profit, and trailing stop orders.
+        """
         try:
             orders = []
             if stop_loss:
@@ -113,11 +126,11 @@ class TradeExecutor:
 
             for order in orders:
                 self.trade_manager.record_trade({
-                    'strategy_name': strategy_name,
+                    'strategy_name': "Risk Management",
                     'asset': asset,
                     'side': order['side'],
                     'amount': amount,
-                    'price': order['price'],
+                    'price': order.get('price', None),
                     'order_id': order['id'],
                     'status': 'open',
                     'market_type': market_type,

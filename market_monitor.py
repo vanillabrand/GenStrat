@@ -1,14 +1,18 @@
-# market_monitor.py
-
 import asyncio
 import pandas as pd
 import logging
-
+import websockets
 from finta import TA
 import pandas_ta as pta
+from typing import Dict, List
 
 
 class MarketMonitor:
+    """
+    Monitors active trading strategies and evaluates market data in real time.
+    Integrates with WebSocket APIs and calculates indicators to identify trade signals.
+    """
+
     def __init__(self, exchange, strategy_manager, trade_executor):
         self.exchange = exchange
         self.strategy_manager = strategy_manager
@@ -16,8 +20,12 @@ class MarketMonitor:
         self.logger = logging.getLogger(self.__class__.__name__)
         self.active_strategies = []
         self.indicators = {}
+        self.websocket_cache = {}
 
     async def start_monitoring(self):
+        """
+        Continuously monitor active strategies and evaluate market data.
+        """
         await self.exchange.load_markets()
         while True:
             try:
@@ -29,6 +37,9 @@ class MarketMonitor:
             await asyncio.sleep(60)
 
     async def monitor_strategy(self, strategy):
+        """
+        Monitor a single strategy across its associated assets.
+        """
         strategy_name = strategy['strategy_name']
         strategy_data = strategy['strategy_data']
         assets = strategy_data['assets']
@@ -42,18 +53,27 @@ class MarketMonitor:
                 continue
 
     async def analyze_market(self, asset, strategy_name, strategy_data, market_type):
+        """
+        Analyze market data for a specific asset and evaluate trade conditions.
+        """
         timeframe = self.get_shortest_timeframe(strategy_data)
         limit = 500
+
+        # Fetch market data
         try:
-            ohlcv = await self.exchange.fetch_ohlcv(
-                asset,
-                timeframe=timeframe,
-                limit=limit,
-                params={'type': market_type}
-            )
-            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
-            df.set_index('datetime', inplace=True)
+            if asset not in self.websocket_cache:
+                ohlcv = await self.exchange.fetch_ohlcv(
+                    asset,
+                    timeframe=timeframe,
+                    limit=limit,
+                    params={'type': market_type}
+                )
+                df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+                df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
+                df.set_index('datetime', inplace=True)
+                self.websocket_cache[asset] = df
+            else:
+                df = self.websocket_cache[asset]
         except Exception as e:
             self.logger.error(f"Failed to fetch data for {asset}: {e}")
             return
@@ -69,6 +89,9 @@ class MarketMonitor:
             await self.trade_executor.execute_trade(strategy_name, asset, 'sell', strategy_data, market_type)
 
     def initialize_indicators(self, strategy_data, df):
+        """
+        Initialize and cache indicators required for strategy conditions.
+        """
         self.indicators = {}
         all_conditions = strategy_data['conditions']['entry'] + strategy_data['conditions']['exit']
         for condition in all_conditions:
@@ -91,6 +114,9 @@ class MarketMonitor:
                 raise
 
     def get_indicator_series(self, indicator_name, df, indicator_params):
+        """
+        Calculate indicator series using either Finta or Pandas-TA.
+        """
         try:
             indicator_name_upper = indicator_name.upper()
             indicator_function = getattr(TA, indicator_name_upper)
@@ -119,6 +145,9 @@ class MarketMonitor:
         raise ValueError(f"Unsupported indicator: {indicator_name}")
 
     def evaluate_conditions(self, conditions):
+        """
+        Evaluate entry or exit conditions for a strategy.
+        """
         for condition in conditions:
             indicator_name = condition['indicator']
             operator = condition['operator']
@@ -146,6 +175,9 @@ class MarketMonitor:
         return True
 
     def evaluate_operator(self, a, operator, b):
+        """
+        Evaluate a condition operator between two values.
+        """
         if operator == '>':
             return a > b
         elif operator == '<':
@@ -161,6 +193,9 @@ class MarketMonitor:
             raise ValueError(f"Unsupported operator: {operator}")
 
     def get_shortest_timeframe(self, strategy_data):
+        """
+        Get the shortest timeframe from a strategy's conditions.
+        """
         timeframes = []
         all_conditions = strategy_data['conditions']['entry'] + strategy_data['conditions']['exit']
         for condition in all_conditions:
@@ -170,6 +205,9 @@ class MarketMonitor:
         return self.format_timeframe(min_timeframe)
 
     def parse_timeframe(self, timeframe_str):
+        """
+        Parse a timeframe string into minutes.
+        """
         unit = timeframe_str[-1]
         value = int(timeframe_str[:-1])
         if unit == 'm':
@@ -183,6 +221,9 @@ class MarketMonitor:
             raise ValueError(f"Unsupported timeframe unit: {unit}")
 
     def format_timeframe(self, minutes):
+        """
+        Format minutes into a timeframe string.
+        """
         if minutes < 60:
             return f"{minutes}m"
         elif minutes < 1440:

@@ -10,6 +10,8 @@ class Backtester:
     def __init__(self):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.logger.setLevel(logging.INFO)
+
+        np.NaN = np.nan
         
         # Console handler for logging
         ch = logging.StreamHandler()
