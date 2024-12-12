@@ -136,6 +136,22 @@ class UserInterface:
                 "12. Exit"
             ]
         )
+    def create_new_strategy(self):
+        try:
+            title = input("Enter the strategy title: ")
+            description = input("Enter the strategy description: ")
+            
+            # Use StrategyInterpreter to interpret the description into a strategy
+            from strategy_interpreter import StrategyInterpreter
+            interpreter = StrategyInterpreter()
+            strategy_json = interpreter.interpret(description)
+
+            # Save the strategy
+            self.strategy_manager.save_strategy(title, description, strategy_json)
+            print(f"Strategy '{title}' created successfully.")
+        except Exception as e:
+            self.logger.error(f"Failed to create a new strategy: {e}")
+            print(f"Error: {e}")
 
     def handle_menu_choice(self, choice: str):
         """Handle the user's menu selection."""
