@@ -31,3 +31,7 @@
 2024-12-12 16:16:09,357 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.
 2024-12-12 16:16:10,208 [INFO] UserInterface: Bitget exchange closed.
 2024-12-12 16:16:10,460 [INFO] UserInterface: Bitget exchange closed.
+2024-12-12 23:45:59,937 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-12 23:46:01,341 [ERROR] StrategyManager: Failed to retrieve active strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-12 23:46:01,341 [ERROR] MarketMonitor: Error in start_monitoring: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-12 23:46:09,945 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.
