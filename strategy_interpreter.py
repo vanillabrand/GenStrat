@@ -5,7 +5,6 @@ from jsonschema import validate, ValidationError
 from config import OPENAI_API_KEY
 import logging
 
-
 class StrategyInterpreter:
     def __init__(self):
         openai.api_key = OPENAI_API_KEY
@@ -167,3 +166,35 @@ class StrategyInterpreter:
         except (json.JSONDecodeError, ValidationError, ValueError) as e:
             self.logger.error(f"Error generating strategy: {e}")
             raise ValueError(f"Error generating strategy: {e}")
+
+    def generate_trades(self, strategy_json: dict, budget: float) -> list:
+        """
+        Reinterprets a strategy JSON into detailed trade objects.
+
+        Args:
+            strategy_json (dict): The JSON strategy data.
+            budget (float): Budget allocated for the strategy.
+
+        Returns:
+            list: A list of trade dictionaries with entry/exit conditions, risk parameters, and budget allocation.
+        """
+        try:
+            trades = []
+            total_position_size = strategy_json['trade_parameters']['position_size'] * budget
+
+            for asset in strategy_json['assets']:
+                trade = {
+                    "asset": asset,
+                    "entry_conditions": strategy_json['conditions']['entry'],
+                    "exit_conditions": strategy_json['conditions']['exit'],
+                    "budget_allocation": total_position_size / len(strategy_json['assets']),
+                    "risk_management": strategy_json['risk_management'],
+                    "market_type": strategy_json['market_type']
+                }
+                trades.append(trade)
+
+            self.logger.info(f"Generated trades successfully: {trades}")
+            return trades
+        except KeyError as e:
+            self.logger.error(f"Missing key in strategy JSON: {e}")
+            raise ValueError(f"Invalid strategy JSON format: Missing {e}")

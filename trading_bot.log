@@ -14,24 +14,3 @@
 2024-12-12 05:24:49,955 [ERROR] UserInterface: Error in monitor thread: 'TradeManager' object has no attribute 'get_active_trades'
 2024-12-12 05:33:57,426 [INFO] UserInterface: Bitget exchange closed.
 2024-12-12 05:33:57,678 [INFO] UserInterface: Bitget exchange closed.
-2024-12-12 15:47:10,790 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 15:47:12,248 [ERROR] StrategyManager: Failed to retrieve active strategies: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 15:47:12,248 [ERROR] MarketMonitor: Error in start_monitoring: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 15:47:20,793 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 15:47:30,796 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 16:06:48,297 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 16:15:23,526 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 16:15:25,076 [ERROR] StrategyManager: Failed to retrieve active strategies: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 16:15:25,076 [ERROR] MarketMonitor: Error in start_monitoring: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 16:15:33,529 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 16:15:49,338 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 16:15:51,303 [ERROR] StrategyManager: Failed to retrieve active strategies: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 16:15:51,303 [ERROR] MarketMonitor: Error in start_monitoring: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 16:15:59,354 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 16:16:09,357 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 16:16:10,208 [INFO] UserInterface: Bitget exchange closed.
-2024-12-12 16:16:10,460 [INFO] UserInterface: Bitget exchange closed.
-2024-12-12 23:45:59,937 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 23:46:01,341 [ERROR] StrategyManager: Failed to retrieve active strategies: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 23:46:01,341 [ERROR] MarketMonitor: Error in start_monitoring: Error 111 connecting to localhost:6379. Connection refused.
-2024-12-12 23:46:09,945 [ERROR] TradeManager: Failed to retrieve active trades: Error 111 connecting to localhost:6379. Connection refused.

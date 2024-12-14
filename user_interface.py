@@ -1,204 +1,160 @@
-import threading
 import logging
-import os
-import json
-import asyncio
-import time
-
-import typer
-import ccxt.async_support as ccxt
-import questionary
-from rich.console import Console
-from rich.table import Table
-from rich.panel import Panel
-from rich.text import Text
-from rich import box
-
-from typing import Dict, List
-
-from strategy_interpreter import StrategyInterpreter
 from strategy_manager import StrategyManager
 from budget_manager import BudgetManager
-from risk_manager import RiskManager
-from trade_executor import TradeExecutor
-from trade_manager import TradeManager
 from performance_manager import PerformanceManager
-from trade_monitor import TradeMonitor
-from market_monitor import MarketMonitor
 from backtester import Backtester
-import pandas as pd
-from config import BITGET_API_KEY, BITGET_SECRET, BITGET_PASSWORD
-
-app = typer.Typer()
+from strategy_interpreter import StrategyInterpreter
 
 
 class UserInterface:
+    """
+    Handles terminal-based interaction for managing trading strategies, budgets, risk levels, and performance metrics.
+    """
+
     def __init__(self):
-        # Initialize managers and interpreters
+        self.logger = logging.getLogger(self.__class__.__name__)
         self.strategy_manager = StrategyManager()
         self.budget_manager = BudgetManager()
-        self.risk_manager = RiskManager()
-        self.trade_manager = TradeManager()
         self.performance_manager = PerformanceManager()
-        self.interpreter = StrategyInterpreter()
+        self.backtester = Backtester()
 
-        # Set up exchange instances
-        self.exchange = self.create_exchange_instance()
-        self.monitor_exchange = self.create_exchange_instance()
-
-        # Initialize trade and market monitors
-        self.trade_executor = TradeExecutor(self.exchange, self.budget_manager, self.risk_manager, self.trade_manager)
-        self.trade_monitor = TradeMonitor(self.monitor_exchange, self.trade_manager, self.performance_manager)
-        self.market_monitor = MarketMonitor(self.monitor_exchange, self.strategy_manager, self.trade_executor)
-
-        # Start background monitoring threads
-        self.start_monitor_thread()
-
-        # Logging and console
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.console = Console()
-
-    def create_exchange_instance(self) -> ccxt.Exchange:
-        """Create a CCXT Bitget exchange instance with API credentials."""
-        return ccxt.bitget({
-            'apiKey': BITGET_API_KEY,
-            'secret': BITGET_SECRET,
-            'password': BITGET_PASSWORD,
-            'enableRateLimit': True,
-        })
-
-    def start_monitor_thread(self):
-        """Start a background thread to handle monitoring tasks."""
-        self.monitor_thread = threading.Thread(target=self.run_monitors, daemon=True)
-        self.monitor_thread.start()
-
-    def run_monitors(self):
-        """Run the monitoring loop."""
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            loop.run_until_complete(self.start_monitoring_tasks())
-        except asyncio.CancelledError:
-            self.logger.info("Monitor thread was cancelled.")
-        except Exception as e:
-            self.logger.error(f"Error in monitor thread: {e}")
-        finally:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            loop.close()
-
-    async def start_monitoring_tasks(self):
-        """Start monitoring tasks asynchronously."""
-        tasks = [
-            self.market_monitor.start_monitoring(),
-            self.trade_monitor.start_monitoring(),
-        ]
-        await asyncio.gather(*tasks)
-
-    @staticmethod
-    def clear_screen():
-        """Clear the terminal screen."""
-        os.system('cls' if os.name == 'nt' else 'clear')
-
-    @app.command()
     def main(self):
-        """Main entry point for the user interface."""
-        try:
-            while True:
-                self.clear_screen()
-                self.display_header()
-                choice = self.prompt_menu_selection()
-                if not choice or choice == "12. Exit":
-                    self.console.print("Exiting...")
-                    asyncio.run(self.close_exchanges())
-                    break
-                self.handle_menu_choice(choice)
-        except KeyboardInterrupt:
-            self.console.print("\n[bold yellow]Interrupted by user. Exiting...[/bold yellow]")
-            asyncio.run(self.close_exchanges())
+        """
+        Main loop for the user interface.
+        """
+        while True:
+            print("\n--- Main Menu ---")
+            print("1. Create New Strategy")
+            print("2. Load Strategy")
+            print("3. List Strategies")
+            print("4. Assign Budget")
+            print("5. View Performance Metrics")
+            print("6. Run Backtests")
+            print("7. Exit")
 
-    def prompt_menu_selection(self) -> str:
-        """Prompt the user to select an option from the main menu."""
-        return self.prompt_questionary(
-            questionary.select,
-            "Select an option:",
-            choices=[
-                "1. Create New Strategy",
-                "2. Load Strategy",
-                "3. Edit Strategy",
-                "4. Define Risk Parameters",
-                "5. Define Budget",
-                "6. Activate Strategy",
-                "7. View Active Strategies",
-                "8. View Performance Metrics",
-                "9. Test Strategy",
-                "10. Suggest a Strategy",
-                "11. Cancel Strategy",
-                "12. Exit"
-            ]
-        )
+            choice = input("Enter your choice: ").strip()
+
+            if choice == "7":
+                self.exit_program()
+                break  # Breaks out of the loop when exiting
+            else:
+                self.handle_menu_choice(choice)
+
+    def handle_menu_choice(self, choice):
+        """
+        Handles user input for the main menu.
+        """
+        menu_options = {
+            "1": self.create_new_strategy,
+            "2": self.load_strategy,
+            "3": self.list_strategies,
+            "4": self.assign_budget,
+            "5": self.view_performance_metrics,
+            "6": self.run_backtests,
+        }
+
+        action = menu_options.get(choice)
+        if action:
+            action()
+        else:
+            print("Invalid choice. Please try again.")
+
     def create_new_strategy(self):
+        """
+        Prompts the user to create a new strategy, interprets it using the StrategyInterpreter, and saves it.
+        """
         try:
-            title = input("Enter the strategy title: ")
-            description = input("Enter the strategy description: ")
-            
-            # Use StrategyInterpreter to interpret the description into a strategy
-            from strategy_interpreter import StrategyInterpreter
+            title = input("Enter the strategy title: ").strip()
+            description = input("Enter the strategy description: ").strip()
+
             interpreter = StrategyInterpreter()
             strategy_json = interpreter.interpret(description)
 
-            # Save the strategy
             self.strategy_manager.save_strategy(title, description, strategy_json)
             print(f"Strategy '{title}' created successfully.")
         except Exception as e:
             self.logger.error(f"Failed to create a new strategy: {e}")
             print(f"Error: {e}")
 
-    def handle_menu_choice(self, choice: str):
-        """Handle the user's menu selection."""
-        choice_number = choice.split('.')[0]
-        menu_actions = {
-            "1": self.create_new_strategy,
-            "2": self.load_strategy,
-            "3": self.edit_strategy,
-            "4": self.define_risk_parameters,
-            "5": self.define_budget,
-            "6": self.activate_strategy,
-            "7": self.view_active_strategies,
-            "8": self.view_performance,
-            "9": self.test_strategy,
-            "10": self.suggest_strategy,
-            "11": self.cancel_strategy,
-        }
-        action = menu_actions.get(choice_number)
-        if action:
-            action()
-        else:
-            self.console.print("[bold red]Invalid choice. Please try again.[/bold red]")
-
-    def display_header(self):
-        """Display the application header."""
-        header_text = Text("Welcome to AI Crypto Strategy Manager", style="bold cyan")
-        header_panel = Panel(header_text, style="bold white on purple", expand=False)
-        self.console.print(header_panel, justify="center")
-
-    def prompt_questionary(self, prompt_func, *args, **kwargs):
-        """Handle user input using Questionary."""
+    def load_strategy(self):
+        """
+        Allows the user to load and view a saved strategy.
+        """
         try:
-            response = prompt_func(*args, **kwargs).ask()
-            if response is None:
-                self.console.print("[bold yellow]Operation cancelled. Returning to main menu.[/bold yellow]")
-                time.sleep(1)
-            return response
-        except KeyboardInterrupt:
-            self.console.print("\n[bold yellow]Interrupted by user. Returning to main menu.[/bold yellow]")
-            time.sleep(1)
-            return None
+            strategy_id = input("Enter the strategy ID to load: ").strip()
+            strategy = self.strategy_manager.load_strategy(strategy_id)
+            if strategy:
+                print("\n--- Strategy Details ---")
+                print(f"ID: {strategy_id}")
+                print(f"Title: {strategy['title']}")
+                print(f"Description: {strategy['description']}")
+                print(f"Data: {strategy['data']}")
+            else:
+                print(f"No strategy found with ID: {strategy_id}")
+        except Exception as e:
+            self.logger.error(f"Failed to load strategy: {e}")
+            print(f"Error: {e}")
 
-    async def close_exchanges(self):
-        """Close exchange connections gracefully."""
-        for exchange in [self.exchange, self.monitor_exchange]:
-            try:
-                await exchange.close()
-                self.logger.info(f"{exchange.name} exchange closed.")
-            except Exception as e:
-                self.logger.error(f"Error closing {exchange.name} exchange: {e}")
+    def list_strategies(self):
+        """
+        Lists all saved strategies.
+        """
+        try:
+            strategies = self.strategy_manager.list_strategies()
+            print("\n--- Strategies ---")
+            for strategy in strategies:
+                print(f"ID: {strategy['id']}, Title: {strategy['title']}, Active: {strategy['active']}")
+        except Exception as e:
+            self.logger.error(f"Failed to list strategies: {e}")
+            print(f"Error: {e}")
+
+    def assign_budget(self):
+        """
+        Assigns a budget to a strategy.
+        """
+        try:
+            strategy_id = input("Enter the strategy ID: ").strip()
+            amount = float(input("Enter the budget amount: "))
+            self.budget_manager.set_budget(strategy_id, amount)
+            print(f"Budget of {amount} assigned to strategy '{strategy_id}'.")
+        except Exception as e:
+            self.logger.error(f"Failed to assign budget: {e}")
+            print(f"Error: {e}")
+
+    def view_performance_metrics(self):
+        """
+        Displays performance metrics for a strategy.
+        """
+        try:
+            strategy_id = input("Enter the strategy ID: ").strip()
+            metrics = self.performance_manager.calculate_summary(strategy_id)
+            print("\n--- Performance Metrics ---")
+            for key, value in metrics.items():
+                print(f"{key}: {value}")
+        except Exception as e:
+            self.logger.error(f"Failed to view performance metrics: {e}")
+            print(f"Error: {e}")
+
+    def run_backtests(self):
+        """
+        Runs backtests for a selected strategy.
+        """
+        try:
+            strategy_id = input("Enter the strategy ID: ").strip()
+            historical_data_path = input("Enter the path to historical data (CSV): ").strip()
+
+            from pandas import read_csv
+            historical_data = read_csv(historical_data_path)
+            strategy = self.strategy_manager.load_strategy(strategy_id)
+
+            self.backtester.run_backtest(strategy, historical_data)
+            print(f"Backtest completed for strategy '{strategy_id}'.")
+        except Exception as e:
+            self.logger.error(f"Failed to run backtest: {e}")
+            print(f"Error: {e}")
+
+    def exit_program(self):
+        """
+        Exits the program.
+        """
+        print("Exiting... Goodbye!")
