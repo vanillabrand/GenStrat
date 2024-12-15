@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 import logging
 
+
+
 class Backtester:
     """
     Provides functionality for backtesting trading strategies using historical data.

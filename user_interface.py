@@ -4,8 +4,8 @@ from budget_manager import BudgetManager
 from performance_manager import PerformanceManager
 from backtester import Backtester
 from strategy_interpreter import StrategyInterpreter
+from synthetic_data_generator import generate_synthetic_data  # For synthetic backtesting data
 from config import Config
-from synthetic_data_generator import generate_synthetic_data  # Assuming a separate module for synthetic data
 
 
 class UserInterface:
@@ -99,7 +99,7 @@ class UserInterface:
                 if new_value:
                     updates[key] = new_value
 
-            self.strategy_manager.edit_strategy(strategy_id, updates)
+            self.strategy_manager.update_strategy(strategy_id, updates)
             print("Strategy updated successfully.")
         except Exception as e:
             self.logger.error(f"Failed to edit strategy: {e}")
@@ -181,9 +181,10 @@ class UserInterface:
                 historical_data = read_csv(historical_data_path)
             elif choice == "2":
                 timeframe = input("Enter timeframe for synthetic data (e.g., '1m', '5m', '1h', '1d'): ").strip()
-                historical_data = generate_synthetic_data(timeframe)
+                points = int(input("Enter the number of data points to generate: "))
+                historical_data = generate_synthetic_data(timeframe, points)
             else:
-                print("Invalid choice.")
+                print("Invalid choice. Backtesting aborted.")
                 return
 
             self.backtester.run_backtest(strategy_id, historical_data)
