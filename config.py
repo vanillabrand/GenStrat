@@ -43,22 +43,3 @@ class Config:
     DEFAULT_BUDGET = float(os.getenv("DEFAULT_BUDGET", 1000.0))
     DEFAULT_MARKET_TYPE = os.getenv("DEFAULT_MARKET_TYPE", "spot")
 
-    @classmethod
-    def validate(cls):
-        """
-        Validate required configuration values are set.
-        Raises:
-            ValueError: If a required configuration is missing.
-        """
-        required_keys = [
-            "BITGET_API_KEY",
-            "BITGET_API_SECRET",
-            "BITGET_API_PASSPHRASE",
-            "OPENAI_API_KEY"
-        ]
-        for key in required_keys:
-            if not getattr(cls, key):
-                raise ValueError(f"Missing required configuration: {key}")
-
-# Validate the configuration on import
-Config.validate()

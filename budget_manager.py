@@ -16,9 +16,9 @@ class BudgetManager:
 
     def set_budget(self, strategy_name: str, amount: float):
         """
-        Sets the budget for a strategy.
+        Sets the budget for a strategy in USDT.
         :param strategy_name: The name of the strategy.
-        :param amount: The budget amount to assign.
+        :param amount: The budget amount in USDT.
         """
         if amount < 0:
             self.logger.error("Budget amount cannot be negative.")
@@ -26,9 +26,10 @@ class BudgetManager:
         with self.lock:
             try:
                 self.redis_client.hset("budgets", strategy_name, amount)
-                self.logger.info(f"Budget for '{strategy_name}' set to {amount}.")
+                self.logger.info(f"Budget for '{strategy_name}' set to {amount} USDT.")
             except Exception as e:
                 self.logger.error(f"Failed to set budget for '{strategy_name}': {e}")
+
 
     def get_budget(self, strategy_name: str) -> float:
         """
@@ -89,6 +90,33 @@ class BudgetManager:
             except Exception as e:
                 self.logger.error(f"Failed to retrieve all budgets: {e}")
                 return {}
+            
+
+    def edit_strategy(self, strategy_id: str, updates: Dict):
+        """
+        Allows updating specific parameters of a saved strategy.
+        :param strategy_id: The unique ID of the strategy.
+        :param updates: A dictionary containing the parameters to update.
+        """
+        key = f"strategy:{strategy_id}"
+        if not self.redis_client.exists(key):
+            self.logger.error(f"Strategy with ID '{strategy_id}' does not exist.")
+            raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
+        try:
+            current_data = self.redis_client.hgetall(key)
+            strategy_data = json.loads(current_data['data'])
+
+            # Update the strategy data with the new parameters
+            strategy_data.update(updates)
+
+            # Save the updated strategy
+            current_data['data'] = json.dumps(strategy_data)
+            self.redis_client.hmset(key, current_data)
+
+            self.logger.info(f"Strategy ID '{strategy_id}' updated successfully.")
+        except Exception as e:
+            self.logger.error(f"Failed to edit strategy ID '{strategy_id}': {e}")
+            raise
 
     def allocate_budget_dynamically(self, total_budget: float, strategy_weights: Dict[str, float]):
         """

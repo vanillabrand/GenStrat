@@ -88,6 +88,28 @@ class StrategyManager:
             self.logger.error(f"Failed to load strategy ID '{strategy_id}': {e}")
             raise
 
+    def list_strategies_for_selection(self):
+        """
+        Lists all strategies by title and allows the user to select one.
+        :return: The ID of the selected strategy.
+        """
+        strategies = self.list_strategies()
+        print("\n--- Strategies ---")
+        for idx, strategy in enumerate(strategies, start=1):
+            print(f"{idx}. {strategy['title']} (ID: {strategy['id']}, Active: {strategy['active']})")
+        
+        while True:
+            try:
+                selection = int(input("Select a strategy by number: "))
+                if 1 <= selection <= len(strategies):
+                    return strategies[selection - 1]['id']
+                else:
+                    print("Invalid selection. Please try again.")
+            except ValueError:
+                print("Invalid input. Please enter a number.")
+
+
+
     def list_strategies(self) -> List[Dict]:
         """
         Lists all saved strategies.

@@ -2,12 +2,11 @@ import openai
 import json
 import hashlib
 from jsonschema import validate, ValidationError
-from config import OPENAI_API_KEY
 import logging
 
 class StrategyInterpreter:
     def __init__(self):
-        openai.api_key = OPENAI_API_KEY
+        openai.api_key = os.getenv("OPENAI_API_KEY")
         self.schema = self._get_strategy_schema()
         self.logger = logging.getLogger(self.__class__.__name__)
         self._configure_logger()

@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import logging
 
 class Backtester:
@@ -133,3 +134,36 @@ class Backtester:
         print(f"ROI: {results['roi']:.2f}%")
         print("Equity Curve:")
         print(results['equity_curve'])
+
+    def generate_synthetic_data(timeframe: str, num_entries: int = 1000) -> pd.DataFrame:
+        """
+        Generates synthetic OHLCV data for backtesting.
+        :param timeframe: The timeframe for the synthetic data (e.g., '1m', '1h', '1d').
+        :param num_entries: The number of data points to generate.
+        :return: A DataFrame containing synthetic OHLCV data.
+        """
+        now = pd.Timestamp.now()
+        time_deltas = {
+            '1m': pd.Timedelta(minutes=1),
+            '5m': pd.Timedelta(minutes=5),
+            '1h': pd.Timedelta(hours=1),
+            '1d': pd.Timedelta(days=1),
+        }
+        delta = time_deltas.get(timeframe, pd.Timedelta(minutes=1))
+
+        timestamps = [now - i * delta for i in range(num_entries)][::-1]
+        opens = np.random.uniform(100, 200, size=num_entries)
+        highs = opens + np.random.uniform(0, 10, size=num_entries)
+        lows = opens - np.random.uniform(0, 10, size=num_entries)
+        closes = np.random.uniform(lows, highs, size=num_entries)
+        volumes = np.random.uniform(1000, 5000, size=num_entries)
+
+        data = {
+            'timestamp': timestamps,
+            'open': opens,
+            'high': highs,
+            'low': lows,
+            'close': closes,
+            'volume': volumes,
+        }
+        return pd.DataFrame(data)
