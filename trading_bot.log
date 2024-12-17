@@ -14,3 +14,16 @@
 2024-12-12 05:24:49,955 [ERROR] UserInterface: Error in monitor thread: 'TradeManager' object has no attribute 'get_active_trades'
 2024-12-12 05:33:57,426 [INFO] UserInterface: Bitget exchange closed.
 2024-12-12 05:33:57,678 [INFO] UserInterface: Bitget exchange closed.
+2024-12-16 04:20:36,219 [ERROR] UserInterface: Failed to create a new strategy: module 'openai' has no attribute 'error'
+2024-12-17 14:59:10,549 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-17 14:59:10,551 [ERROR] UserInterface: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-17 14:59:14,437 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-17 14:59:14,438 [ERROR] UserInterface: Failed to activate strategy: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-17 14:59:15,897 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-17 14:59:15,897 [ERROR] UserInterface: Failed to edit strategy: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-17 14:59:20,125 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-17 14:59:20,126 [ERROR] UserInterface: Failed to run backtest: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-17 14:59:23,093 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-17 14:59:23,094 [ERROR] UserInterface: Failed to view performance metrics: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-17 14:59:25,382 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-17 14:59:25,382 [ERROR] UserInterface: Failed to assign budget: Error 111 connecting to localhost:6379. Connection refused.

@@ -5,8 +5,8 @@ from jsonschema import validate, ValidationError
 import logging
 
 class StrategyInterpreter:
-    def __init__(self):
-        openai.api_key = os.getenv("OPENAI_API_KEY")
+    def __init__(self, api_key):
+        self.api_key = api_key    
         self.schema = self._get_strategy_schema()
         self.logger = logging.getLogger(self.__class__.__name__)
         self._configure_logger()

@@ -6,7 +6,7 @@ from backtester import Backtester
 from strategy_interpreter import StrategyInterpreter
 from synthetic_data_generator import generate_synthetic_data  # For synthetic backtesting data
 from config import Config
-
+from strategy_interpreter import StrategyInterpreter
 
 class UserInterface:
     """
@@ -20,6 +20,7 @@ class UserInterface:
         self.performance_manager = PerformanceManager()
         self.backtester = Backtester()
         self.strategy_interpreter = StrategyInterpreter(Config.OPENAI_API_KEY)
+        
 
     def main(self):
         """
@@ -71,7 +72,6 @@ class UserInterface:
         try:
             title = input("Enter the strategy title: ").strip()
             description = input("Enter the strategy description: ").strip()
-
             strategy_json = self.strategy_interpreter.interpret(description)
             self.strategy_manager.save_strategy(title, description, strategy_json)
             print(f"Strategy '{title}' created successfully.")
