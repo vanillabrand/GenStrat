@@ -96,7 +96,7 @@ class StrategyInterpreter:
                     ]
                 )
                 return response.choices[0].message.content
-            except openai.error.OpenAIError as e:
+            except openai.OpenAIError as e:
                 self.logger.warning(f"Model {model} failed with error: {e}")
                 continue  # Try the next model in the fallback list
         raise ValueError("Both gpt-4 and gpt-3.5-turbo failed or are unavailable.")
