@@ -1,10 +1,12 @@
 import asyncio
 import logging
 from typing import Dict, List
+from rich.table import Table
+from rich.live import Live
 
 class TradeMonitor:
     """
-    Monitors active trades, updates statuses, and calculates performance metrics for strategies.
+    Monitors active trades, updates statuses, adapts trades dynamically, and provides live feedback.
     """
 
     def __init__(self, exchange, trade_manager, performance_manager):
@@ -12,27 +14,42 @@ class TradeMonitor:
         self.trade_manager = trade_manager
         self.performance_manager = performance_manager
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.live_dashboard = None
+
+    def create_dashboard(self):
+        """
+        Creates the live dashboard structure.
+        """
+        table = Table(title="Live Trade Monitoring")
+        table.add_column("Trade ID", justify="center", style="cyan", no_wrap=True)
+        table.add_column("Strategy Name", justify="center", style="green", no_wrap=True)
+        table.add_column("Asset", justify="center", style="magenta", no_wrap=True)
+        table.add_column("Status", justify="center", style="yellow", no_wrap=True)
+        table.add_column("PnL", justify="center", style="red", no_wrap=True)
+        table.add_column("Last Action", justify="center", style="blue", no_wrap=True)
+        return table
 
     async def start_monitoring(self, interval: int = 10):
         """
-        Start monitoring trades and update them periodically.
+        Start monitoring trades and updating their statuses.
         :param interval: Time in seconds between updates.
         """
         self.logger.info("Trade monitoring started.")
-        while True:
-            try:
-                await self.update_trades()
-            except Exception as e:
-                self.logger.error(f"Error during trade monitoring: {e}")
-            await asyncio.sleep(interval)
+        self.live_dashboard = self.create_dashboard()
+        with Live(self.live_dashboard, refresh_per_second=1) as live:
+            while True:
+                try:
+                    await self.update_trades()
+                    self.update_dashboard()
+                except Exception as e:
+                    self.logger.error(f"Error during trade monitoring: {e}")
+                await asyncio.sleep(interval)
 
     async def update_trades(self):
         """
-        Fetch and update the status of active trades.
+        Fetches and updates the status of active trades, adapting them if needed.
         """
         active_trades = self.trade_manager.get_active_trades()
-        strategies = {}
-
         for trade in active_trades:
             try:
                 order = await self.exchange.fetch_order(trade['order_id'], trade['asset'])
@@ -40,80 +57,74 @@ class TradeMonitor:
                     'status': order['status'],
                     'filled': order.get('filled', 0),
                     'remaining': order.get('remaining', 0),
-                    'average': order.get('average', 0)
+                    'average': order.get('average', 0),
+                    'pnl': self.calculate_pnl(trade, order)
                 }
                 self.trade_manager.update_trade(trade['trade_id'], updates)
                 self.logger.debug(f"Trade '{trade['trade_id']}' status updated.")
-
-                # Collect data for performance metrics
-                strategy_name = trade['strategy_name']
-                if strategy_name not in strategies:
-                    strategies[strategy_name] = []
-                strategies[strategy_name].append(trade)
+                await self.adapt_trade(trade, order)
             except Exception as e:
                 self.logger.error(f"Error updating trade {trade['trade_id']}: {e}")
 
-        # Update performance metrics for each strategy
-        for strategy_name, trades in strategies.items():
-            performance_data = self.calculate_performance(trades)
-            self.performance_manager.record_performance(strategy_name, performance_data)
-
-    def calculate_performance(self, trades: List[Dict]) -> Dict:
+    async def adapt_trade(self, trade: Dict, order: Dict):
         """
-        Calculate performance metrics for a list of trades.
-        :param trades: List of trades to analyze.
-        :return: Dictionary containing performance metrics.
+        Adapts a trade based on new market conditions or strategy updates.
+        :param trade: The trade being monitored.
+        :param order: Current order details from the exchange.
         """
-        total_pnl = 0
-        total_investment = 0
-        wins = 0
-        losses = 0
-        max_drawdown = 0
-        equity_curve = []
-        equity = 0
+        try:
+            strategy_name = trade['strategy_name']
+            updated_conditions = self.trade_manager.get_strategy_conditions(strategy_name)
 
-        for trade in trades:
-            if trade['status'] == 'closed':
-                entry_price = float(trade.get('entry_price', 0))
-                exit_price = float(trade.get('average', 0))
-                amount = float(trade.get('filled', 0))
-                pnl = (exit_price - entry_price) * amount if trade['side'] == 'buy' else (entry_price - exit_price) * amount
-                total_pnl += pnl
-                total_investment += entry_price * amount
-                equity += pnl
-                equity_curve.append(equity)
+            if 'exit' in updated_conditions:
+                new_exit_price = self.calculate_exit_price(order, updated_conditions['exit'])
+                if new_exit_price != order.get('price'):
+                    await self.exchange.modify_order(
+                        order_id=order['id'],
+                        symbol=trade['asset'],
+                        price=new_exit_price
+                    )
+                    self.logger.info(f"Adjusted exit price for trade {trade['trade_id']} to {new_exit_price}.")
+        except Exception as e:
+            self.logger.error(f"Error adapting trade {trade['trade_id']}: {e}")
 
-                if pnl > 0:
-                    wins += 1
-                else:
-                    losses += 1
-
-        win_rate = (wins / (wins + losses) * 100) if (wins + losses) > 0 else 0
-        roi = (total_pnl / total_investment * 100) if total_investment > 0 else 0
-        avg_profit = (total_pnl / (wins + losses)) if (wins + losses) > 0 else 0
-
-        if equity_curve:
-            peak = equity_curve[0]
-            for value in equity_curve:
-                if value > peak:
-                    peak = value
-                drawdown = ((peak - value) / peak) * 100 if peak > 0 else 0
-                max_drawdown = max(max_drawdown, drawdown)
-
-        performance_data = {
-            'total_pnl': total_pnl,
-            'roi': roi,
-            'win_rate': win_rate,
-            'avg_profit': avg_profit,
-            'max_drawdown': max_drawdown
-        }
-        self.logger.debug(f"Calculated performance metrics: {performance_data}")
-        return performance_data
-
-    async def send_alert(self, trade: Dict, message: str):
+    def calculate_pnl(self, trade: Dict, order: Dict) -> float:
         """
-        Sends an alert for a specific trade.
+        Calculates profit and loss for a trade.
         :param trade: Trade details.
-        :param message: Alert message to send.
+        :param order: Current order details.
+        :return: Calculated PnL.
         """
-        self.logger.info(f"Alert for trade {trade['trade_id']}: {message}")
+        entry_price = trade.get('entry_price', 0)
+        exit_price = order.get('average', 0)
+        amount = order.get('filled', 0)
+        pnl = (exit_price - entry_price) * amount if trade['side'] == 'buy' else (entry_price - exit_price) * amount
+        return pnl
+
+    def calculate_exit_price(self, order: Dict, exit_conditions: Dict) -> float:
+        """
+        Calculates a new exit price based on updated conditions.
+        :param order: Current order details.
+        :param exit_conditions: Updated exit conditions.
+        :return: New exit price.
+        """
+        exit_price = order['price'] * 1.02  # Placeholder logic for a 2% target profit
+        return exit_price
+
+    def update_dashboard(self):
+        """
+        Updates the live dashboard table with the latest trade information.
+        """
+        self.live_dashboard.rows.clear()
+        active_trades = self.trade_manager.get_active_trades()
+        for trade in active_trades:
+            status = trade.get('status', 'Unknown')
+            pnl = trade.get('pnl', 0.0)
+            self.live_dashboard.add_row(
+                trade['trade_id'],
+                trade['strategy_name'],
+                trade['asset'],
+                status,
+                f"{pnl:.2f}",
+                trade.get('last_action', 'N/A')
+            )

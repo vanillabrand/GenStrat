@@ -4,9 +4,10 @@ import uuid
 import logging
 from typing import Dict, List
 
+
 class StrategyManager:
     """
-    Manages the storage, retrieval, and activation of trading strategies.
+    Manages the storage, retrieval, editing, and activation of trading strategies.
     Each strategy is assigned a unique ID and a user-defined title.
     """
 
@@ -68,6 +69,23 @@ class StrategyManager:
             self.logger.error(f"Failed to update strategy ID '{strategy_id}': {e}")
             raise
 
+    def edit_strategy(self, strategy_id: str, new_title: str = None, new_description: str = None, new_data: Dict = None):
+        """
+        Allows editing of the strategy title, description, or data.
+        :param strategy_id: The ID of the strategy to edit.
+        :param new_title: The new title (if any).
+        :param new_description: The new description (if any).
+        :param new_data: The new strategy data (if any).
+        """
+        updates = {}
+        if new_title:
+            updates['title'] = new_title
+        if new_description:
+            updates['description'] = new_description
+        if new_data:
+            updates['data'] = new_data
+        self.update_strategy(strategy_id, updates)
+
     def load_strategy(self, strategy_id: str) -> Dict:
         """
         Loads a strategy by its unique ID.
@@ -87,28 +105,6 @@ class StrategyManager:
         except Exception as e:
             self.logger.error(f"Failed to load strategy ID '{strategy_id}': {e}")
             raise
-
-    def list_strategies_for_selection(self):
-        """
-        Lists all strategies by title and allows the user to select one.
-        :return: The ID of the selected strategy.
-        """
-        strategies = self.list_strategies()
-        print("\n--- Strategies ---")
-        for idx, strategy in enumerate(strategies, start=1):
-            print(f"{idx}. {strategy['title']} (ID: {strategy['id']}, Active: {strategy['active']})")
-        
-        while True:
-            try:
-                selection = int(input("Select a strategy by number: "))
-                if 1 <= selection <= len(strategies):
-                    return strategies[selection - 1]['id']
-                else:
-                    print("Invalid selection. Please try again.")
-            except ValueError:
-                print("Invalid input. Please enter a number.")
-
-
 
     def list_strategies(self) -> List[Dict]:
         """

@@ -1,216 +1,192 @@
 import asyncio
 import pandas as pd
 import logging
-from finta import TA
-import pandas_ta as pta
+from rich.live import Live
+from rich.table import Table
+
 
 class MarketMonitor:
     """
-    Monitors market data, evaluates strategies, and triggers trade execution based on strategy conditions.
+    Monitors active strategies, evaluates market conditions, and triggers trade executions based on strategy rules.
+    Displays live updates via a dashboard.
     """
 
-    def __init__(self, exchange, strategy_manager, trade_executor):
+    def __init__(self, exchange, strategy_manager, trade_manager, trade_executor):
         self.exchange = exchange
         self.strategy_manager = strategy_manager
+        self.trade_manager = trade_manager
         self.trade_executor = trade_executor
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.active_strategies = []
-        self.indicators = {}
+        self.dashboard_table = Table(title="Live Trading Dashboard")
+        self.create_dashboard()
+        self.websocket_connections = {}
+
+    def create_dashboard(self):
+        """
+        Initializes the live dashboard structure.
+        """
+        self.dashboard_table.add_column("Strategy Name", justify="center", style="cyan", no_wrap=True)
+        self.dashboard_table.add_column("Asset", justify="center", style="magenta", no_wrap=True)
+        self.dashboard_table.add_column("Market Type", justify="center", style="blue", no_wrap=True)
+        self.dashboard_table.add_column("Trade Status", justify="center", style="green", no_wrap=True)
+        self.dashboard_table.add_column("PnL", justify="center", style="red", no_wrap=True)
+        self.dashboard_table.add_column("Filled (%)", justify="center", style="yellow", no_wrap=True)
+        self.dashboard_table.add_column("Remaining", justify="center", style="white", no_wrap=True)
+        self.dashboard_table.add_column("Risk Level", justify="center", style="bright_yellow", no_wrap=True)
+        self.dashboard_table.add_column("Last Action", justify="center", style="bright_cyan", no_wrap=True)
 
     async def start_monitoring(self):
         """
-        Main loop for monitoring active strategies and evaluating market conditions.
+        Main loop for monitoring active strategies and updating the dashboard.
         """
         await self.exchange.load_markets()
-        while True:
+        self.logger.info("MarketMonitor: Starting monitoring loop...")
+        with Live(self.dashboard_table, refresh_per_second=1) as live_dashboard:
+            while True:
+                try:
+                    await self.update_dashboard()
+                except Exception as e:
+                    self.logger.error(f"MarketMonitor: Error in monitoring loop - {e}")
+                await asyncio.sleep(5)
+
+    async def update_dashboard(self):
+        """
+        Updates the dashboard with active trades and their statuses.
+        """
+        self.dashboard_table.rows.clear()  # Clear the table for fresh data
+
+        # Get active strategies and trades
+        active_strategies = self.strategy_manager.get_active_strategies()
+        active_trades = self.trade_manager.get_active_trades()
+
+        # Update WebSocket subscriptions for relevant assets
+        await self.update_websocket_subscriptions(active_trades)
+
+        # Map strategies and trades to dashboard rows
+        for trade in active_trades:
+            strategy_name = trade.get("strategy_name", "Unknown")
+            asset = trade.get("asset", "Unknown")
+            market_type = trade.get("market_type", "spot")
+            status = trade.get("status", "Unknown")
+            filled = trade.get("filled", 0)
+            remaining = trade.get("remaining", 0)
+            pnl = self.calculate_pnl(trade)
+            risk_level = trade.get("risk_level", "Moderate")
+            last_action = status if status in ["open", "closed"] else "Pending"
+
+            self.dashboard_table.add_row(
+                strategy_name,
+                asset,
+                market_type,
+                status,
+                f"{pnl:.2f}",
+                f"{(filled / (filled + remaining) * 100) if (filled + remaining) > 0 else 0:.2f}%",
+                str(remaining),
+                risk_level,
+                last_action,
+            )
+
+    async def update_websocket_subscriptions(self, trades):
+        """
+        Updates WebSocket subscriptions to ensure real-time market data for active trades.
+        """
+        subscribed_assets = set(self.websocket_connections.keys())
+        required_assets = {trade["asset"] for trade in trades}
+
+        # Unsubscribe from assets no longer needed
+        for asset in subscribed_assets - required_assets:
+            if self.websocket_connections.get(asset):
+                await self.exchange.websocket_unsubscribe(asset)
+                del self.websocket_connections[asset]
+                self.logger.info(f"Unsubscribed from WebSocket for asset: {asset}")
+
+        # Subscribe to new assets
+        for asset in required_assets - subscribed_assets:
             try:
-                self.active_strategies = self.strategy_manager.get_active_strategies()
-                tasks = [self.monitor_strategy(strategy) for strategy in self.active_strategies]
-                await asyncio.gather(*tasks)
+                connection = await self.exchange.websocket_subscribe(asset)
+                self.websocket_connections[asset] = connection
+                self.logger.info(f"Subscribed to WebSocket for asset: {asset}")
             except Exception as e:
-                self.logger.error(f"Error in start_monitoring: {e}")
-            await asyncio.sleep(60)
+                self.logger.error(f"Failed to subscribe to WebSocket for asset {asset}: {e}")
 
     async def monitor_strategy(self, strategy):
         """
-        Monitor and evaluate a specific strategy across its assets.
+        Monitors and evaluates a specific strategy across its assets.
         """
-        strategy_name = strategy['strategy_name']
-        strategy_data = strategy['strategy_data']
-        assets = strategy_data['assets']
-        market_type = strategy_data.get('market_type', 'spot')
+        strategy_name = strategy["title"]
+        strategy_data = strategy["data"]
 
-        for asset in assets:
+        for asset in strategy_data["assets"]:
             try:
-                await self.analyze_market(asset, strategy_name, strategy_data, market_type)
+                df = await self.fetch_live_data(asset)
+                entry_signal = self.evaluate_conditions(strategy_data["conditions"]["entry"], df)
+                exit_signal = self.evaluate_conditions(strategy_data["conditions"]["exit"], df)
+
+                if entry_signal:
+                    await self.trade_executor.execute_trade(strategy_name, asset, "buy", strategy_data)
+                elif exit_signal:
+                    await self.trade_executor.execute_trade(strategy_name, asset, "sell", strategy_data)
             except Exception as e:
-                self.logger.error(f"Error monitoring strategy '{strategy_name}' for asset '{asset}': {e}")
+                self.logger.error(f"MarketMonitor: Error monitoring '{strategy_name}' for asset '{asset}' - {e}")
 
-    async def analyze_market(self, asset, strategy_name, strategy_data, market_type):
+    async def fetch_live_data(self, asset):
         """
-        Analyze market data for a specific asset and execute trades based on strategy conditions.
+        Fetches live market data via WebSocket or fallback to REST API.
         """
-        timeframe = self.get_shortest_timeframe(strategy_data)
-        limit = 500
-        try:
-            ohlcv = await self.exchange.fetch_ohlcv(
-                asset, timeframe=timeframe, limit=limit, params={'type': market_type}
-            )
-            df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
-            df['datetime'] = pd.to_datetime(df['timestamp'], unit='ms')
-            df.set_index('datetime', inplace=True)
-        except Exception as e:
-            self.logger.error(f"Failed to fetch data for {asset}: {e}")
-            return
-
-        self.initialize_indicators(strategy_data, df)
-
-        entry_signal = self.evaluate_conditions(strategy_data['conditions']['entry'])
-        if entry_signal:
-            await self.trade_executor.execute_trade(strategy_name, asset, 'buy', strategy_data, market_type)
-
-        exit_signal = self.evaluate_conditions(strategy_data['conditions']['exit'])
-        if exit_signal:
-            await self.trade_executor.execute_trade(strategy_name, asset, 'sell', strategy_data, market_type)
-
-    def initialize_indicators(self, strategy_data, df):
-        """
-        Initializes and calculates indicators for the strategy.
-        """
-        self.indicators = {}
-        all_conditions = strategy_data['conditions']['entry'] + strategy_data['conditions']['exit']
-        for condition in all_conditions:
-            indicator_name = condition['indicator']
-            indicator_params = condition.get('indicator_parameters', {})
-            indicator_key = f"{indicator_name}_{indicator_params}"
-            if indicator_key in self.indicators:
-                continue
+        if asset in self.websocket_connections:
             try:
-                if indicator_name.lower() == 'price':
-                    self.indicators[indicator_key] = df['close']
-                else:
-                    indicator_series = self.get_indicator_series(indicator_name, df, indicator_params)
-                    self.indicators[indicator_key] = indicator_series
-            except ValueError as e:
-                self.logger.error(e)
+                return await self.websocket_connections[asset].fetch_live_data()
             except Exception as e:
-                self.logger.error(f"Error initializing indicator '{indicator_name}': {e}")
+                self.logger.warning(f"WebSocket data for {asset} unavailable, falling back to REST API: {e}")
 
-    def get_indicator_series(self, indicator_name, df, indicator_params):
+        ohlcv = await self.exchange.fetch_ohlcv(asset, timeframe="1m", limit=500)
+        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
+        df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
+        df.set_index("datetime", inplace=True)
+        return df
+
+    def calculate_pnl(self, trade):
         """
-        Retrieves a series for a specific indicator using Finta or pandas-ta.
+        Calculates profit and loss for a trade.
         """
         try:
-            indicator_name_upper = indicator_name.upper()
-            indicator_function = getattr(TA, indicator_name_upper)
-            indicator_series = indicator_function(df, **indicator_params)
-            if isinstance(indicator_series, pd.DataFrame):
-                indicator_series = indicator_series.iloc[:, 0]
-            return indicator_series
-        except AttributeError:
-            pass
+            entry_price = float(trade.get("entry_price", 0))
+            exit_price = float(trade.get("average", 0))
+            amount = float(trade.get("filled", 0))
+
+            if trade["status"] == "closed":
+                pnl = (exit_price - entry_price) * amount if trade["side"] == "buy" else (entry_price - exit_price) * amount
+                return pnl
         except Exception as e:
-            self.logger.error(f"Error calculating indicator '{indicator_name}' with Finta: {e}")
+            self.logger.error(f"MarketMonitor: Error calculating PnL for trade {trade['trade_id']} - {e}")
+        return 0.0
 
-        try:
-            indicator_name_lower = indicator_name.lower()
-            indicator_function = getattr(pta, indicator_name_lower)
-            indicator_series = indicator_function(close=df['close'], **indicator_params)
-            if isinstance(indicator_series, pd.DataFrame):
-                indicator_series = indicator_series.iloc[:, 0]
-            return indicator_series
-        except AttributeError:
-            pass
-        except Exception as e:
-            self.logger.error(f"Error calculating indicator '{indicator_name}' with pandas-ta: {e}")
-
-        raise ValueError(f"Unsupported indicator: {indicator_name}")
-
-    def evaluate_conditions(self, conditions):
+    def evaluate_conditions(self, conditions, df):
         """
-        Evaluates all conditions for entry or exit signals.
+        Evaluates conditions for a strategy and determines if they are met.
         """
         for condition in conditions:
-            indicator_name = condition['indicator']
-            operator = condition['operator']
-            value = condition['value']
-            indicator_params = condition.get('indicator_parameters', {})
-            indicator_key = f"{indicator_name}_{indicator_params}"
-            indicator_series = self.indicators.get(indicator_key)
-            if indicator_series is None or indicator_series.empty:
-                self.logger.error(f"Indicator '{indicator_name}' not initialized or has no data.")
-                return False
-            indicator_value = indicator_series.iloc[-1]
+            indicator = condition.get("indicator")
+            operator = condition.get("operator")
+            value = condition.get("value")
 
-            if isinstance(value, str):
-                value_indicator_name = value
-                value_indicator_params = condition.get('value_indicator_parameters', {})
-                value_indicator_key = f"{value_indicator_name}_{value_indicator_params}"
-                compare_series = self.indicators.get(value_indicator_key)
-                if compare_series is None or compare_series.empty:
-                    self.logger.error(f"Indicator '{value_indicator_name}' not initialized or has no data.")
-                    return False
-                compare_value = compare_series.iloc[-1]
-            else:
-                compare_value = float(value)
+            if indicator not in df.columns:
+                df[indicator] = self.calculate_indicator(indicator, df)
 
-            if not self.evaluate_operator(indicator_value, operator, compare_value):
+            last_value = df[indicator].iloc[-1]
+            if not self.compare(last_value, operator, value):
                 return False
         return True
 
-    def evaluate_operator(self, a, operator, b):
+    def compare(self, a, operator, b):
         """
-        Compares two values based on the provided operator.
+        Compares two values with the given operator.
         """
-        if operator == '>':
-            return a > b
-        elif operator == '<':
-            return a < b
-        elif operator == '==':
-            return a == b
-        elif operator == '>=':
-            return a >= b
-        elif operator == '<=':
-            return a <= b
-        else:
-            self.logger.error(f"Unsupported operator: {operator}")
-            raise ValueError(f"Unsupported operator: {operator}")
-
-    def get_shortest_timeframe(self, strategy_data):
-        """
-        Determines the shortest timeframe required by the strategy conditions.
-        """
-        timeframes = []
-        all_conditions = strategy_data['conditions']['entry'] + strategy_data['conditions']['exit']
-        for condition in all_conditions:
-            timeframes.append(condition.get('timeframe', '1d'))
-        timeframe_minutes = [self.parse_timeframe(tf) for tf in timeframes]
-        min_timeframe = min(timeframe_minutes)
-        return self.format_timeframe(min_timeframe)
-
-    def parse_timeframe(self, timeframe_str):
-        """
-        Parses a timeframe string into minutes.
-        """
-        unit = timeframe_str[-1]
-        value = int(timeframe_str[:-1])
-        if unit == 'm':
-            return value
-        elif unit == 'h':
-            return value * 60
-        elif unit == 'd':
-            return value * 60 * 24
-        else:
-            self.logger.error(f"Unsupported timeframe unit: {unit}")
-            raise ValueError(f"Unsupported timeframe unit: {unit}")
-
-    def format_timeframe(self, minutes):
-        """
-        Formats minutes into a standard timeframe string.
-        """
-        if minutes < 60:
-            return f"{minutes}m"
-        elif minutes < 1440:
-            return f"{minutes // 60}h"
-        else:
-            return f"{minutes // 1440}d"
+        operators = {
+            ">": lambda x, y: x > y,
+            "<": lambda x, y: x < y,
+            ">=": lambda x, y: x >= y,
+            "<=": lambda x, y: x <= y,
+            "==": lambda x, y: x == y,
+        }
+        return operators[operator](a, b)

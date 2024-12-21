@@ -1,120 +1,144 @@
-import asyncio
 import logging
 from typing import Dict, List
+import redis
+import json
 
-class TradeMonitor:
+
+class TradeManager:
     """
-    Monitors active trades, updates statuses, and calculates performance metrics for strategies.
+    Manages the lifecycle of trades, including recording, updating, retrieving, and closing trades.
     """
 
-    def __init__(self, exchange, trade_manager, performance_manager):
-        self.exchange = exchange
-        self.trade_manager = trade_manager
-        self.performance_manager = performance_manager
+    def __init__(self, redis_host="localhost", redis_port=6379, redis_db=0):
+        self.redis_client = redis.StrictRedis(
+            host=redis_host, port=redis_port, db=redis_db, decode_responses=True
+        )
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    async def start_monitoring(self, interval: int = 10):
+    def record_trade(self, trade_data: Dict):
         """
-        Start monitoring trades and update them periodically.
-        :param interval: Time in seconds between updates.
+        Records a new trade in the database.
+        :param trade_data: Dictionary containing trade details.
         """
-        self.logger.info("Trade monitoring started.")
-        while True:
-            try:
-                await self.update_trades()
-            except Exception as e:
-                self.logger.error(f"Error during trade monitoring: {e}")
-            await asyncio.sleep(interval)
+        try:
+            trade_id = trade_data["trade_id"]
+            key = f"trade:{trade_id}"
+            self.redis_client.hmset(key, trade_data)
+            self.redis_client.sadd("active_trades", trade_id)
+            self.logger.info(f"Recorded new trade: {trade_id}")
+        except Exception as e:
+            self.logger.error(f"Failed to record trade: {e}")
 
-    async def update_trades(self):
+    def get_active_trades(self) -> List[Dict]:
         """
-        Fetch and update the status of active trades.
+        Retrieves all active trades from the database.
+        :return: List of dictionaries representing active trades.
         """
-        active_trades = self.trade_manager.get_active_trades()
-        strategies = {}
+        try:
+            trade_ids = self.redis_client.smembers("active_trades")
+            trades = [self.redis_client.hgetall(f"trade:{trade_id}") for trade_id in trade_ids]
+            self.logger.debug(f"Retrieved {len(trades)} active trades.")
+            return trades
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve active trades: {e}")
+            return []
 
-        for trade in active_trades:
-            try:
-                self.logger.info(f"Updating trade {trade['trade_id']} for strategy {trade['strategy_name']}")
-                order = await self.exchange.fetch_order(trade['order_id'], trade['asset'])
-                updates = {
-                    'status': order['status'],
-                    'filled': order.get('filled', 0),
-                    'remaining': order.get('remaining', 0),
-                    'average': order.get('average', 0)
-                }
-                self.trade_manager.update_trade(trade['trade_id'], updates)
-                self.logger.debug(f"Trade '{trade['trade_id']}' status updated: {updates}")
-
-                # Collect data for performance metrics
-                strategy_name = trade['strategy_name']
-                if strategy_name not in strategies:
-                    strategies[strategy_name] = []
-                strategies[strategy_name].append(trade)
-            except Exception as e:
-                self.logger.error(f"Error updating trade {trade['trade_id']}: {e}")
-
-        # Update performance metrics for each strategy
-        for strategy_name, trades in strategies.items():
-            performance_data = self.calculate_performance(trades)
-            self.performance_manager.record_performance(strategy_name, performance_data)
-
-    def calculate_performance(self, trades: List[Dict]) -> Dict:
+    def update_trade(self, trade_id: str, updates: Dict):
         """
-        Calculate performance metrics for a list of trades.
-        :param trades: List of trades to analyze.
-        :return: Dictionary containing performance metrics.
+        Updates the details of an existing trade.
+        :param trade_id: Unique identifier of the trade.
+        :param updates: Dictionary containing the fields to update.
         """
-        total_pnl = 0
-        total_investment = 0
-        wins = 0
-        losses = 0
-        max_drawdown = 0
-        equity_curve = []
-        equity = 0
+        try:
+            key = f"trade:{trade_id}"
+            if not self.redis_client.exists(key):
+                self.logger.error(f"Trade ID '{trade_id}' does not exist.")
+                return
 
-        for trade in trades:
-            if trade['status'] == 'closed':
-                entry_price = float(trade.get('entry_price', 0))
-                exit_price = float(trade.get('average', 0))
-                amount = float(trade.get('filled', 0))
-                pnl = (exit_price - entry_price) * amount if trade['side'] == 'buy' else (entry_price - exit_price) * amount
-                total_pnl += pnl
-                total_investment += entry_price * amount
-                equity += pnl
-                equity_curve.append(equity)
+            self.redis_client.hmset(key, updates)
+            self.logger.info(f"Updated trade ID '{trade_id}' with {updates}")
+        except Exception as e:
+            self.logger.error(f"Failed to update trade ID '{trade_id}': {e}")
 
-                if pnl > 0:
-                    wins += 1
-                else:
-                    losses += 1
-
-        win_rate = (wins / (wins + losses) * 100) if (wins + losses) > 0 else 0
-        roi = (total_pnl / total_investment * 100) if total_investment > 0 else 0
-        avg_profit = (total_pnl / (wins + losses)) if (wins + losses) > 0 else 0
-
-        if equity_curve:
-            peak = equity_curve[0]
-            for value in equity_curve:
-                if value > peak:
-                    peak = value
-                drawdown = ((peak - value) / peak) * 100 if peak > 0 else 0
-                max_drawdown = max(max_drawdown, drawdown)
-
-        performance_data = {
-            'total_pnl': total_pnl,
-            'roi': roi,
-            'win_rate': win_rate,
-            'avg_profit': avg_profit,
-            'max_drawdown': max_drawdown
-        }
-        self.logger.debug(f"Calculated performance metrics: {performance_data}")
-        return performance_data
-
-    async def send_alert(self, trade: Dict, message: str):
+    def close_trade(self, trade_id: str):
         """
-        Sends an alert for a specific trade.
-        :param trade: Trade details.
-        :param message: Alert message to send.
+        Marks a trade as closed and moves it out of the active trades list.
+        :param trade_id: Unique identifier of the trade.
         """
-        self.logger.info(f"Alert for trade {trade['trade_id']}: {message}")
+        try:
+            key = f"trade:{trade_id}"
+            if self.redis_client.exists(key):
+                self.redis_client.srem("active_trades", trade_id)
+                self.redis_client.hset(key, "status", "closed")
+                self.logger.info(f"Closed trade ID: {trade_id}")
+            else:
+                self.logger.error(f"Trade ID '{trade_id}' does not exist.")
+        except Exception as e:
+            self.logger.error(f"Failed to close trade ID '{trade_id}': {e}")
+
+    def get_strategy_conditions(self, strategy_name: str) -> Dict:
+        """
+        Retrieves the conditions for a specific strategy.
+        :param strategy_name: Name of the strategy.
+        :return: Dictionary containing the strategy's conditions.
+        """
+        try:
+            key = f"strategy_conditions:{strategy_name}"
+            if self.redis_client.exists(key):
+                conditions = self.redis_client.hgetall(key)
+                self.logger.debug(f"Retrieved conditions for strategy '{strategy_name}': {conditions}")
+                return json.loads(conditions.get("data", "{}"))
+            else:
+                self.logger.warning(f"No conditions found for strategy '{strategy_name}'.")
+                return {}
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve conditions for strategy '{strategy_name}': {e}")
+            return {}
+
+    def record_strategy_conditions(self, strategy_name: str, conditions: Dict):
+        """
+        Records the conditions for a specific strategy.
+        :param strategy_name: Name of the strategy.
+        :param conditions: Dictionary containing the conditions to save.
+        """
+        try:
+            key = f"strategy_conditions:{strategy_name}"
+            self.redis_client.hmset(key, {"data": json.dumps(conditions)})
+            self.logger.info(f"Recorded conditions for strategy '{strategy_name}'.")
+        except Exception as e:
+            self.logger.error(f"Failed to record conditions for strategy '{strategy_name}': {e}")
+
+    def get_trade_by_id(self, trade_id: str) -> Dict:
+        """
+        Fetches a specific trade by its unique identifier.
+        :param trade_id: Unique identifier of the trade.
+        :return: Dictionary containing trade details.
+        """
+        try:
+            key = f"trade:{trade_id}"
+            if self.redis_client.exists(key):
+                trade = self.redis_client.hgetall(key)
+                self.logger.debug(f"Retrieved trade ID '{trade_id}': {trade}")
+                return trade
+            else:
+                self.logger.warning(f"Trade ID '{trade_id}' does not exist.")
+                return {}
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve trade ID '{trade_id}': {e}")
+            return {}
+
+    def clear_closed_trades(self):
+        """
+        Clears all closed trades from the database.
+        """
+        try:
+            trade_ids = self.redis_client.smembers("active_trades")
+            for trade_id in trade_ids:
+                key = f"trade:{trade_id}"
+                trade = self.redis_client.hgetall(key)
+                if trade.get("status") == "closed":
+                    self.redis_client.delete(key)
+                    self.redis_client.srem("active_trades", trade_id)
+                    self.logger.info(f"Cleared closed trade ID: {trade_id}")
+        except Exception as e:
+            self.logger.error(f"Failed to clear closed trades: {e}")

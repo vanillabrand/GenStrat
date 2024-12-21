@@ -57,3 +57,24 @@ A detailed migration guide is available here: https://github.com/openai/openai-p
 2024-12-18 07:32:30,518 [ERROR] UserInterface: Failed to activate strategy: Error 111 connecting to localhost:6379. Connection refused.
 2024-12-18 07:32:37,490 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
 2024-12-18 07:32:37,490 [ERROR] UserInterface: Failed to activate strategy: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 21:04:44,667 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 21:04:44,667 [ERROR] UserInterface: Failed to activate strategy: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 23:01:26,828 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 23:01:26,829 [ERROR] UserInterface: Failed to edit strategy: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 23:04:29,907 [WARNING] StrategyInterpreter: Model gpt-4 failed with error: No API key provided. You can set your API key in code using 'openai.api_key = <API-KEY>', or you can set the environment variable OPENAI_API_KEY=<API-KEY>). If your API key is stored in a file, you can point the openai module at it with 'openai.api_key_path = <PATH>'. You can generate API keys in the OpenAI web interface. See https://platform.openai.com/account/api-keys for details.
+2024-12-18 23:04:29,907 [WARNING] StrategyInterpreter: Model gpt-3.5-turbo failed with error: No API key provided. You can set your API key in code using 'openai.api_key = <API-KEY>', or you can set the environment variable OPENAI_API_KEY=<API-KEY>). If your API key is stored in a file, you can point the openai module at it with 'openai.api_key_path = <PATH>'. You can generate API keys in the OpenAI web interface. See https://platform.openai.com/account/api-keys for details.
+2024-12-18 23:04:29,907 [ERROR] UserInterface: Failed to create a new strategy: Both gpt-4 and gpt-3.5-turbo failed or are unavailable.
+2024-12-18 23:05:00,992 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 23:05:00,992 [ERROR] UserInterface: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 23:06:32,915 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 23:06:32,915 [ERROR] UserInterface: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 23:06:41,191 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 23:06:41,191 [ERROR] UserInterface: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 23:14:24,866 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 23:14:24,866 [ERROR] UserInterface: Failed to view performance metrics: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 23:18:09,950 [ERROR] StrategyManager: Failed to list strategies: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 23:18:09,951 [ERROR] UserInterface: Failed to activate strategy: Error 111 connecting to localhost:6379. Connection refused.
+2024-12-18 23:21:46,776 [INFO] StrategyManager: Listed all strategies successfully.
+2024-12-18 23:34:28,977 [INFO] StrategyManager: Listed all strategies successfully.
+2024-12-18 23:34:31,606 [INFO] StrategyManager: Listed all strategies successfully.
+2024-12-18 23:34:37,449 [INFO] StrategyManager: Listed all strategies successfully.
