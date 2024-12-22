@@ -2,38 +2,59 @@ import os
 import logging
 from rich.console import Console
 from rich.table import Table
-from rich.panel import Panel
 from rich.layout import Layout
-from rich.prompt import Prompt
-from rich.progress import Progress
+from rich.panel import Panel
+from rich.live import Live
+
 from strategy_manager import StrategyManager
 from risk_manager import RiskManager
 from budget_manager import BudgetManager
 from performance_manager import PerformanceManager
-from trade_monitor import TradeMonitor
-from market_monitor import MarketMonitor
 from backtester import Backtester
-from synthetic_data_generator import generate_synthetic_data
+from dashboard import Dashboard
 
 
 class UserInterface:
     """
-    Enhanced terminal-based interface for managing trading strategies, budgets, risk levels, and performance metrics.
+    Handles terminal-based interaction for managing trading strategies, budgets, risk levels, and performance metrics.
     """
 
     def __init__(self, exchange):
         self.logger = logging.getLogger(self.__class__.__name__)
         self.console = Console()
+        self.layout = Layout()
+        self.exchange = exchange
+
+        # Initialize managers
         self.strategy_manager = StrategyManager()
         self.risk_manager = RiskManager()
         self.budget_manager = BudgetManager()
         self.performance_manager = PerformanceManager()
         self.backtester = Backtester()
-        self.market_monitor = MarketMonitor(exchange, self.strategy_manager, None)  # Placeholder for TradeExecutor
-        self.trade_monitor = TradeMonitor(exchange, None, self.performance_manager)  # Placeholder for TradeManager
+        self.dashboard = Dashboard(self.exchange, self.strategy_manager, self.performance_manager)
+
+        self.configure_layout()
+
+    def configure_layout(self):
+        """
+        Configures the rich layout for the application.
+        """
+        self.layout.split(
+            Layout(name="header", size=3),
+            Layout(name="body"),
+            Layout(name="footer", size=3),
+        )
+        self.layout["header"].update(Panel("[bold cyan]Welcome to GenStrat Trading Application[/bold cyan]"))
+        self.layout["footer"].update(
+            Panel(
+                "Press [bold green]Ctrl+C[/bold green] to exit. Use the menu to navigate options."
+            )
+        )
 
     def clear_screen(self):
-        """Clear the terminal screen."""
+        """
+        Clear the terminal screen.
+        """
         os.system("cls" if os.name == "nt" else "clear")
 
     def main(self):
@@ -41,193 +62,444 @@ class UserInterface:
         Main loop for the user interface.
         """
         while True:
-            self.clear_screen()
-            layout = self.create_main_layout()
-            self.console.print(layout)
-            choice = Prompt.ask("[bold cyan]Enter your choice[/bold cyan]", choices=[str(i) for i in range(1, 11)], default="10")
-            self.handle_menu_choice(choice)
+            try:
+                self.layout["body"].update(self.create_main_menu())
+                with Live(self.layout, refresh_per_second=10, console=self.console):
+                    choice = input("Select an option: ")
+                    self.handle_menu_choice(choice)
+            except KeyboardInterrupt:
+                self.exit_program()
 
-    def create_main_layout(self):
-        """Creates the main menu layout."""
-        layout = Layout()
-        layout.split_column(
-            Layout(Panel("[bold cyan]Trading Bot Application[/bold cyan]", style="cyan"), size=3),
-            Layout(self.create_menu_table(), size=12),
-            Layout(Panel("[bold yellow]Navigate using numbers. Press 10 to exit.[/bold yellow]", style="yellow"), size=3),
-        )
-        return layout
-
-    def create_menu_table(self):
-        """Creates a rich table for the main menu."""
-        table = Table(title="[bold magenta]Main Menu[/bold magenta]")
-        table.add_column("Option", justify="center", style="cyan")
-        table.add_column("Action", justify="left", style="magenta")
+    def create_main_menu(self):
+        """
+        Creates the main menu as a rich table.
+        """
+        table = Table(title="Main Menu")
+        table.add_column("Option", justify="center", style="cyan", no_wrap=True)
+        table.add_column("Description", justify="left", style="magenta")
 
         options = [
             ("1", "Create New Strategy"),
-            ("2", "Edit Existing Strategy"),
-            ("3", "List All Strategies"),
-            ("4", "Assign Budget to Strategy"),
-            ("5", "Activate and Monitor Strategies"),
+            ("2", "Edit Strategy"),
+            ("3", "List Strategies"),
+            ("4", "Assign Budget"),
+            ("5", "Activate Strategy"),
             ("6", "View Performance Metrics"),
             ("7", "Run Backtests"),
-            ("8", "Show Live Dashboard"),
-            ("9", "Manage Risk Levels"),
-            ("10", "Exit Application"),
+            ("8", "Dashboard"),
+            ("9", "Exit"),
         ]
-        for option in options:
-            table.add_row(*option)
-        return table
+
+        for option, description in options:
+            table.add_row(option, description)
+
+        return Panel(table)
 
     def handle_menu_choice(self, choice):
         """
         Handles user input for the main menu.
         """
-        menu_actions = {
+        menu_options = {
             "1": self.create_new_strategy,
             "2": self.edit_strategy,
             "3": self.list_strategies,
             "4": self.assign_budget,
-            "5": self.activate_and_monitor_strategies,
+            "5": self.activate_strategy,
             "6": self.view_performance_metrics,
             "7": self.run_backtests,
-            "8": self.show_live_dashboard,
-            "9": self.manage_risk_levels,
-            "10": self.exit_program,
+            "8": self.view_dashboard,
+            "9": self.exit_program,
         }
-        action = menu_actions.get(choice)
+
+        action = menu_options.get(choice)
         if action:
             action()
         else:
-            self.console.print("[bold red]Invalid option selected. Returning to main menu...[/bold red]")
+            self.console.print("[bold red]Invalid choice. Please try again.[/bold red]")
 
     def create_new_strategy(self):
-        """Prompt user to create a new trading strategy."""
+        """
+        Prompts the user to create a new strategy, interprets it, and saves it.
+        """
         self.clear_screen()
         try:
-            title = Prompt.ask("Enter the strategy title")
-            description = Prompt.ask("Enter the strategy description")
+            title = input("Enter the strategy title: ")
+            description = input("Enter the strategy description: ")
 
             from strategy_interpreter import StrategyInterpreter
             interpreter = StrategyInterpreter()
-            strategy_data = interpreter.interpret(description)
+            strategy_json = interpreter.interpret(description)
 
-            self.strategy_manager.save_strategy(title, description, strategy_data)
-            self.console.print(f"[bold green]Strategy '{title}' created successfully![/bold green]")
+            self.strategy_manager.save_strategy(title, description, strategy_json)
+            self.console.print(f"[bold green]Strategy '{title}' created successfully.[/bold green]")
         except Exception as e:
             self.logger.error(f"Failed to create a new strategy: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
-        input("Press Enter to return to the main menu...")
-
+    
     def edit_strategy(self):
-        """Allows the user to edit an existing strategy."""
-        self.clear_screen()
-        strategies = self.strategy_manager.list_strategies()
-        if not strategies:
-            self.console.print("[bold red]No strategies available to edit.[/bold red]")
-            input("Press Enter to return to the main menu...")
-            return
-
-        strategy = self.select_strategy(strategies, "edit")
-        if strategy:
-            try:
-                updates = {}
-                title = Prompt.ask("Enter new title (leave blank to keep current)", default=strategy["title"])
-                description = Prompt.ask("Enter new description (leave blank to keep current)", default=strategy["description"])
-                if title != strategy["title"]:
-                    updates["title"] = title
-                if description != strategy["description"]:
-                    updates["description"] = description
-
-                self.strategy_manager.edit_strategy(strategy["id"], updates)
-                self.console.print(f"[bold green]Strategy '{title}' updated successfully![/bold green]")
-            except Exception as e:
-                self.logger.error(f"Error editing strategy: {e}")
-                self.console.print(f"[bold red]Error: {e}[/bold red]")
-        input("Press Enter to return to the main menu...")
-
-    def list_strategies(self):
-        """Lists all available strategies."""
-        self.clear_screen()
-        strategies = self.strategy_manager.list_strategies()
-        if not strategies:
-            self.console.print("[bold red]No strategies available.[/bold red]")
-            input("Press Enter to return to the main menu...")
-            return
-
-        table = Table(title="[bold cyan]Available Strategies[/bold cyan]")
-        table.add_column("ID", justify="center", style="cyan")
-        table.add_column("Title", style="magenta")
-        table.add_column("Status", justify="center", style="green")
-
-        for strategy in strategies:
-            table.add_row(strategy["id"], strategy["title"], "[green]Active[/green]" if strategy["active"] else "[red]Inactive[/red]")
-
-        self.console.print(table)
-        input("Press Enter to return to the main menu...")
-
-    def assign_budget(self):
-        """Assigns a budget to a strategy."""
-        self.clear_screen()
-        strategies = self.strategy_manager.list_strategies()
-        if not strategies:
-            self.console.print("[bold red]No strategies available to assign budget.[/bold red]")
-            input("Press Enter to return to the main menu...")
-            return
-
-        strategy = self.select_strategy(strategies, "assign budget")
-        if strategy:
-            try:
-                budget = Prompt.ask("Enter the budget amount (in USDT)", default="100")
-                self.budget_manager.set_budget(strategy["id"], float(budget))
-                self.console.print(f"[bold green]Budget of {budget} USDT assigned to '{strategy['title']}'.[/bold green]")
-            except Exception as e:
-                self.logger.error(f"Error assigning budget: {e}")
-                self.console.print(f"[bold red]Error: {e}[/bold red]")
-        input("Press Enter to return to the main menu...")
-
-    def show_live_dashboard(self):
-        """Displays a live dashboard with active trades and strategies."""
+        """
+        Allows the user to edit a saved strategy.
+        """
         self.clear_screen()
         try:
-            self.market_monitor.display_dashboard()
+            strategies = self.strategy_manager.list_strategies()
+            self.console.print("\n--- Select a Strategy to Edit ---")
+            for i, strategy in enumerate(strategies):
+                self.console.print(f"{i + 1}. {strategy['title']} (ID: {strategy['id']})")
+
+            choice = int(input("Select a strategy by number: ")) - 1
+
+            if 0 <= choice < len(strategies):
+                strategy_id = strategies[choice]['id']
+                strategy = self.strategy_manager.load_strategy(strategy_id)
+
+                updates = {}
+                title = input(f"Title [{strategy['title']}]: ")
+                if title:
+                    updates['title'] = title
+
+                description = input(f"Description [{strategy['description']}]: ")
+                if description:
+                    updates['description'] = description
+
+                self.strategy_manager.edit_strategy(strategy_id, updates)
+                self.console.print(f"[bold green]Strategy '{strategy_id}' updated successfully.[/bold green]")
+            else:
+                self.console.print("[bold red]Invalid selection.[/bold red]")
         except Exception as e:
-            self.logger.error(f"Error displaying dashboard: {e}")
+            self.logger.error(f"Failed to edit strategy: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
-        input("Press Enter to return to the main menu...")
 
-    def manage_risk_levels(self):
-        """Allows the user to configure risk levels for strategies."""
+    def list_strategies(self):
+        """
+        Lists all saved strategies.
+        """
         self.clear_screen()
-        strategies = self.strategy_manager.list_strategies()
-        if not strategies:
-            self.console.print("[bold red]No strategies available to configure risk levels.[/bold red]")
-            input("Press Enter to return to the main menu...")
-            return
+        try:
+            strategies = self.strategy_manager.list_strategies()
+            table = Table(title="Saved Strategies")
+            table.add_column("ID", style="cyan")
+            table.add_column("Title", style="magenta")
+            table.add_column("Active", style="green")
 
-        strategy = self.select_strategy(strategies, "manage risk levels")
-        if strategy:
-            try:
-                self.risk_manager.configure_risk(strategy["id"])
-                self.console.print(f"[bold green]Risk levels configured for '{strategy['title']}'.[/bold green]")
-            except Exception as e:
-                self.logger.error(f"Error configuring risk levels: {e}")
-                self.console.print(f"[bold red]Error: {e}[/bold red]")
-        input("Press Enter to return to the main menu...")
+            for strategy in strategies:
+                table.add_row(strategy['id'], strategy['title'], str(strategy['active']))
 
-    def select_strategy(self, strategies, action):
-        """Helper method to select a strategy from a list."""
-        table = Table(title=f"[bold cyan]Select a Strategy to {action}[/bold cyan]")
-        table.add_column("Index", justify="center", style="cyan")
-        table.add_column("Title", style="magenta")
-        for idx, strategy in enumerate(strategies, 1):
-            table.add_row(str(idx), strategy["title"])
-        self.console.print(table)
+            self.console.print(table)
+        except Exception as e:
+            self.logger.error(f"Failed to list strategies: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
 
-        choice = Prompt.ask("Enter the index of the strategy", choices=[str(i) for i in range(1, len(strategies) + 1)])
-        return strategies[int(choice) - 1]
+    def assign_budget(self):
+        """
+        Assigns a budget to a strategy.
+        """
+        self.clear_screen()
+        try:
+            strategies = self.strategy_manager.list_strategies()
+            self.console.print("\n--- Select a Strategy to Assign Budget ---")
+            for i, strategy in enumerate(strategies):
+                self.console.print(f"{i + 1}. {strategy['title']} (ID: {strategy['id']})")
+
+            choice = int(input("Select a strategy by number: ")) - 1
+
+            if 0 <= choice < len(strategies):
+                strategy_id = strategies[choice]['id']
+                amount = float(input("Enter the budget amount (in USDT): "))
+                self.budget_manager.set_budget(strategy_id, amount)
+                self.console.print(f"[bold green]Budget of {amount} USDT assigned to strategy '{strategy_id}'.[bold green]")
+            else:
+                self.console.print("[bold red]Invalid selection.[/bold red]")
+        except Exception as e:
+            self.logger.error(f"Failed to assign budget: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+
+    def activate_strategy(self):
+        """
+        Activates a saved strategy for monitoring and execution.
+        """
+        self.clear_screen()
+        try:
+            strategies = self.strategy_manager.list_strategies()
+            self.console.print("\n--- Select a Strategy to Activate ---")
+            for i, strategy in enumerate(strategies):
+                self.console.print(f"{i + 1}. {strategy['title']} (ID: {strategy['id']})")
+
+            choice = int(input("Select a strategy by number: ")) - 1
+
+            if 0 <= choice < len(strategies):
+                strategy_id = strategies[choice]['id']
+                self.strategy_manager.activate_strategy(strategy_id)
+                self.console.print(f"[bold green]Strategy '{strategy_id}' activated.[/bold green]")
+            else:
+                self.console.print("[bold red]Invalid selection.[/bold red]")
+        except Exception as e:
+            self.logger.error(f"Failed to activate strategy: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+
+    def view_performance_metrics(self):
+        """
+        Displays performance metrics for a strategy.
+        """
+        self.clear_screen()
+        try:
+            strategies = self.strategy_manager.list_strategies()
+            self.console.print("\n--- Select a Strategy to View Performance ---")
+            for i, strategy in enumerate(strategies):
+                self.console.print(f"{i + 1}. {strategy['title']} (ID: {strategy['id']})")
+
+            choice = int(input("Select a strategy by number: ")) - 1
+
+            if 0 <= choice < len(strategies):
+                strategy_id = strategies[choice]['id']
+                metrics = self.performance_manager.calculate_summary(strategy_id)
+                table = Table(title="Performance Metrics")
+                table.add_column("Metric", style="cyan")
+                table.add_column("Value", style="magenta")
+
+                for key, value in metrics.items():
+                    table.add_row(key, str(value))
+
+                self.console.print(table)
+            else:
+                self.console.print("[bold red]Invalid selection.[/bold red]")
+        except Exception as e:
+            self.logger.error(f"Failed to view performance metrics: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+            
+    def run_backtests(self):
+        """
+        Runs backtests for a selected strategy.
+        """
+        self.clear_screen()
+        try:
+            strategies = self.strategy_manager.list_strategies()
+            self.console.print("\n--- Select a Strategy to Backtest ---")
+            for i, strategy in enumerate(strategies):
+                self.console.print(f"{i + 1}. {strategy['title']} (ID: {strategy['id']})")
+            choice = int(input("Select a strategy by number: ")) - 1
+
+            if 0 <= choice < len(strategies):
+                strategy_id = strategies[choice]['id']
+                self.console.print("\n1. Load CSV File")
+                self.console.print("2. Generate Synthetic Data")
+                source_choice = input("Choose data source: ")
+
+                if source_choice == "1":
+                    historical_data_path = input("Enter the path to historical data (CSV): ")
+                    from pandas import read_csv
+                    historical_data = read_csv(historical_data_path)
+                elif source_choice == "2":
+                    timeframe = input("Enter timeframe (e.g., 1m, 5m, 1h): ")
+                    duration = int(input("Enter duration in days: "))
+                    historical_data = generate_synthetic_data(timeframe, duration)
+                else:
+                    self.console.print("[bold red]Invalid choice.[/bold red]")
+                    return
+
+                strategy = self.strategy_manager.load_strategy(strategy_id)
+                self.backtester.run_backtest(strategy, historical_data)
+                self.console.print(f"[bold green]Backtest completed for strategy '{strategy_id}'.[/bold green]")
+            else:
+                self.console.print("[bold red]Invalid selection.[/bold red]")
+        except Exception as e:
+            self.logger.error(f"Failed to run backtest: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+
+    def view_dashboard(self):
+        """
+        Displays the live trading dashboard.
+        """
+        self.dashboard.display()
 
     def exit_program(self):
-        """Exit the application."""
-        self.console.print("[bold cyan]Exiting the application. Goodbye![/bold cyan]")
+        """
+        Exits the program.
+        """
+        self.console.print("[bold cyan]Exiting... Goodbye![/bold cyan]")
         exit()
+
+    def edit_strategy(self):
+        """
+        Allows the user to edit a saved strategy.
+        """
+        self.clear_screen()
+        try:
+            strategies = self.strategy_manager.list_strategies()
+            self.console.print("\n--- Select a Strategy to Edit ---")
+            for i, strategy in enumerate(strategies):
+                self.console.print(f"{i + 1}. {strategy['title']} (ID: {strategy['id']})")
+
+            choice = int(input("Select a strategy by number: ")) - 1
+
+            if 0 <= choice < len(strategies):
+                strategy_id = strategies[choice]['id']
+                strategy = self.strategy_manager.load_strategy(strategy_id)
+
+                updates = {}
+                title = input(f"Title [{strategy['title']}]: ")
+                if title:
+                    updates['title'] = title
+
+                description = input(f"Description [{strategy['description']}]: ")
+                if description:
+                    updates['description'] = description
+
+                self.strategy_manager.edit_strategy(strategy_id, updates)
+                self.console.print(f"[bold green]Strategy '{strategy_id}' updated successfully.[/bold green]")
+            else:
+                self.console.print("[bold red]Invalid selection.[/bold red]")
+        except Exception as e:
+            self.logger.error(f"Failed to edit strategy: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+
+
+    def list_strategies(self):
+        """
+        Lists all saved strategies.
+        """
+        self.clear_screen()
+        try:
+            strategies = self.strategy_manager.list_strategies()
+            table = Table(title="Saved Strategies")
+            table.add_column("ID", style="cyan")
+            table.add_column("Title", style="magenta")
+            table.add_column("Active", style="green")
+
+            for strategy in strategies:
+                table.add_row(strategy['id'], strategy['title'], str(strategy['active']))
+
+            self.console.print(table)
+        except Exception as e:
+            self.logger.error(f"Failed to list strategies: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+
+    def assign_budget(self):
+        """
+        Assigns a budget to a strategy.
+        """
+        self.clear_screen()
+        try:
+            strategies = self.strategy_manager.list_strategies()
+            self.console.print("\n--- Select a Strategy to Assign Budget ---")
+            for i, strategy in enumerate(strategies):
+                self.console.print(f"{i + 1}. {strategy['title']} (ID: {strategy['id']})")
+
+            choice = int(input("Select a strategy by number: ")) - 1
+
+            if 0 <= choice < len(strategies):
+                strategy_id = strategies[choice]['id']
+                amount = float(input("Enter the budget amount (in USDT): "))
+                self.budget_manager.set_budget(strategy_id, amount)
+                self.console.print(f"[bold green]Budget of {amount} USDT assigned to strategy '{strategy_id}'.[bold green]")
+            else:
+                self.console.print("[bold red]Invalid selection.[/bold red]")
+        except Exception as e:
+            self.logger.error(f"Failed to assign budget: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+
+    def activate_strategy(self):
+        """
+        Activates a saved strategy for monitoring and execution.
+        """
+        self.clear_screen()
+        try:
+            strategies = self.strategy_manager.list_strategies()
+            self.console.print("\n--- Select a Strategy to Activate ---")
+            for i, strategy in enumerate(strategies):
+                self.console.print(f"{i + 1}. {strategy['title']} (ID: {strategy['id']})")
+
+            choice = int(input("Select a strategy by number: ")) - 1
+
+            if 0 <= choice < len(strategies):
+                strategy_id = strategies[choice]['id']
+                self.strategy_manager.activate_strategy(strategy_id)
+                self.console.print(f"[bold green]Strategy '{strategy_id}' activated.[/bold green]")
+            else:
+                self.console.print("[bold red]Invalid selection.[/bold red]")
+        except Exception as e:
+            self.logger.error(f"Failed to activate strategy: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+
+    def view_performance_metrics(self):
+        """
+        Displays performance metrics for a strategy.
+        """
+        self.clear_screen()
+        try:
+            strategies = self.strategy_manager.list_strategies()
+            self.console.print("\n--- Select a Strategy to View Performance ---")
+            for i, strategy in enumerate(strategies):
+                self.console.print(f"{i + 1}. {strategy['title']} (ID: {strategy['id']})")
+
+            choice = int(input("Select a strategy by number: ")) - 1
+
+            if 0 <= choice < len(strategies):
+                strategy_id = strategies[choice]['id']
+                metrics = self.performance_manager.calculate_summary(strategy_id)
+                table = Table(title="Performance Metrics")
+                table.add_column("Metric", style="cyan")
+                table.add_column("Value", style="magenta")
+
+                for key, value in metrics.items():
+                    table.add_row(key, str(value))
+
+                self.console.print(table)
+            else:
+                self.console.print("[bold red]Invalid selection.[/bold red]")
+        except Exception as e:
+            self.logger.error(f"Failed to view performance metrics: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+
+    def run_backtests(self):
+        """
+        Runs backtests for a selected strategy.
+        """
+        self.clear_screen()
+        try:
+            strategies = self.strategy_manager.list_strategies()
+            self.console.print("\n--- Select a Strategy to Backtest ---")
+            for i, strategy in enumerate(strategies):
+                self.console.print(f"{i + 1}. {strategy['title']} (ID: {strategy['id']})")
+            choice = int(input("Select a strategy by number: ")) - 1
+
+            if 0 <= choice < len(strategies):
+                strategy_id = strategies[choice]['id']
+                self.console.print("\n1. Load CSV File")
+                self.console.print("2. Generate Synthetic Data")
+                source_choice = input("Choose data source: ")
+
+                if source_choice == "1":
+                    historical_data_path = input("Enter the path to historical data (CSV): ")
+                    from pandas import read_csv
+                    historical_data = read_csv(historical_data_path)
+                elif source_choice == "2":
+                    timeframe = input("Enter timeframe (e.g., 1m, 5m, 1h): ")
+                    duration = int(input("Enter duration in days: "))
+                    historical_data = generate_synthetic_data(timeframe, duration)
+                else:
+                    self.console.print("[bold red]Invalid choice.[/bold red]")
+                    return
+
+                strategy = self.strategy_manager.load_strategy(strategy_id)
+                self.backtester.run_backtest(strategy, historical_data)
+                self.console.print(f"[bold green]Backtest completed for strategy '{strategy_id}'.[/bold green]")
+            else:
+                self.console.print("[bold red]Invalid selection.[/bold red]")
+        except Exception as e:
+            self.logger.error(f"Failed to run backtest: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+
+    def view_dashboard(self):
+        """
+        Displays the live trading dashboard.
+        """
+        self.dashboard.display()
+
+    def exit_program(self):
+        """
+        Exits the program.
+        """
+        self.console.print("[bold cyan]Exiting... Goodbye![/bold cyan]")
+        exit()
+
