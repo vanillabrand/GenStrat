@@ -214,3 +214,159 @@ class UserInterface:
         """Exits the program."""
         self.console.print("[bold cyan]Exiting... Goodbye![/bold cyan]")
         exit()
+
+    def assign_budget(self):
+        """Assigns a budget to a strategy."""
+        try:
+            strategies = self.strategy_manager.list_strategies()
+            if not strategies:
+                self.console.print("[bold yellow]No strategies available to assign a budget to.[/bold yellow]")
+                return
+
+            self.console.print("\n--- Select a Strategy to Assign Budget ---")
+            for i, strategy in enumerate(strategies):
+                self.console.print(f"{i + 1}. {strategy['title']} (ID: {strategy['id']})")
+
+            choice = int(input("Select a strategy by number: ")) - 1
+            if 0 <= choice < len(strategies):
+                strategy_id = strategies[choice]['id']
+                amount = float(input("Enter the budget amount (in USDT): "))
+                if amount <= 0:
+                    self.console.print("[bold red]Invalid budget amount. Please enter a positive number.[/bold red]")
+                    return
+
+                self.budget_manager.set_budget(strategy_id, amount)
+                self.console.print(f"[bold green]Budget of {amount} USDT assigned to strategy '{strategy_id}'.[bold green]")
+            else:
+                self.console.print("[bold red]Invalid selection. Please try again.[/bold red]")
+        except ValueError:
+            self.console.print("[bold red]Invalid input. Please enter a number.[/bold red]")
+        except Exception as e:
+            self.logger.error(f"Failed to assign budget: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+
+    def view_performance_metrics(self):
+        """
+        Displays performance metrics for a selected strategy.
+        """
+        try:
+            self.clear_screen()
+            strategies = self.strategy_manager.list_strategies()
+
+            if not strategies:
+                self.console.print("[bold red]No strategies available to view performance.[/bold red]")
+                input("Press Enter to return to the main menu...")
+                return
+
+            table = Table(title="Available Strategies", title_style="bold cyan")
+            table.add_column("Number", justify="center", style="magenta")
+            table.add_column("Title", style="cyan")
+            table.add_column("Active", style="green")
+            for idx, strategy in enumerate(strategies, start=1):
+                table.add_row(str(idx), strategy["title"], "Yes" if strategy["active"] else "No")
+
+            self.console.print(table)
+
+            strategy_choice = input("Select a strategy by number to view performance: ").strip()
+            if not strategy_choice.isdigit():
+                self.console.print("[bold red]Invalid input. Please enter a valid number.[/bold red]")
+                input("Press Enter to return to the main menu...")
+                return
+
+            strategy_index = int(strategy_choice) - 1
+            if strategy_index < 0 or strategy_index >= len(strategies):
+                self.console.print("[bold red]Invalid choice. Please select a valid strategy.[/bold red]")
+                input("Press Enter to return to the main menu...")
+                return
+
+            strategy_id = strategies[strategy_index]["id"]
+            metrics = self.performance_manager.calculate_summary(strategy_id)
+
+            performance_table = Table(title="Performance Metrics", title_style="bold green")
+            performance_table.add_column("Metric", justify="left", style="cyan")
+            performance_table.add_column("Value", justify="right", style="yellow")
+            for metric, value in metrics.items():
+                performance_table.add_row(metric, str(value))
+
+            self.console.print(performance_table)
+            input("Press Enter to return to the main menu...")
+
+        except Exception as e:
+            self.logger.error(f"Error in view_performance_metrics: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+            
+def run_backtests(self):
+    """
+    Runs backtests for a selected strategy.
+    """
+    try:
+        self.clear_screen()
+        strategies = self.strategy_manager.list_strategies()
+
+        if not strategies:
+            self.console.print("[bold red]No strategies available to backtest.[/bold red]")
+            input("Press Enter to return to the main menu...")
+            return
+
+        table = Table(title="Available Strategies for Backtesting", title_style="bold cyan")
+        table.add_column("Number", justify="center", style="magenta")
+        table.add_column("Title", style="cyan")
+        for idx, strategy in enumerate(strategies, start=1):
+            table.add_row(str(idx), strategy["title"])
+
+        self.console.print(table)
+
+        strategy_choice = input("Select a strategy by number to backtest: ").strip()
+        if not strategy_choice.isdigit():
+            self.console.print("[bold red]Invalid input. Please enter a valid number.[/bold red]")
+            input("Press Enter to return to the main menu...")
+            return
+
+        strategy_index = int(strategy_choice) - 1
+        if strategy_index < 0 or strategy_index >= len(strategies):
+            self.console.print("[bold red]Invalid choice. Please select a valid strategy.[/bold red]")
+            input("Press Enter to return to the main menu...")
+            return
+
+        strategy_id = strategies[strategy_index]["id"]
+
+        self.console.print("\n[bold cyan]Choose Backtesting Data Source[/bold cyan]")
+        self.console.print("1. Load historical data from CSV file.")
+        self.console.print("2. Generate synthetic data.")
+        source_choice = input("Enter your choice (1 or 2): ").strip()
+
+        if source_choice == "1":
+            csv_path = input("Enter the full path to the CSV file: ").strip()
+            from pandas import read_csv
+            historical_data = read_csv(csv_path)
+        elif source_choice == "2":
+            timeframe = input("Enter timeframe (e.g., 1m, 5m, 1h): ").strip()
+            days = input("Enter the number of days for synthetic data: ").strip()
+            if not days.isdigit():
+                self.console.print("[bold red]Invalid number of days. Please try again.[/bold red]")
+                return
+            from synthetic_data_generator import generate_synthetic_data
+            historical_data = generate_synthetic_data(timeframe, int(days))
+        else:
+            self.console.print("[bold red]Invalid choice. Returning to main menu.[/bold red]")
+            return
+
+        strategy = self.strategy_manager.load_strategy(strategy_id)
+        self.backtester.run_backtest(strategy, historical_data)
+        self.console.print(f"[bold green]Backtest completed for strategy '{strategy_id}'.[/bold green]")
+        input("Press Enter to return to the main menu...")
+
+    except Exception as e:
+        self.logger.error(f"Error in run_backtests: {e}")
+        self.console.print(f"[bold red]Error: {e}[/bold red]")
+def view_dashboard(self):
+    """
+    Displays the live trading dashboard.
+    """
+    try:
+        self.clear_screen()
+        self.console.print("[bold cyan]Launching Dashboard...[/bold cyan]")
+        self.dashboard.run()
+    except Exception as e:
+        self.logger.error(f"Error in view_dashboard: {e}")
+        self.console.print(f"[bold red]Error: {e}[/bold red]")
