@@ -1,12 +1,14 @@
 import ccxt
 from user_interface import UserInterface
+import os
+
 
 def main():
     # Initialize the exchange object (e.g., Bitget)
     exchange = ccxt.bitget({
-        "apiKey": os.env.get("BITGET_API_KEY"),
-        "secret": os.env.get("BITGET_API_SECRET"),
-        "password": os.env.get("BITGET_API_PASSPHRASE")  # If applicable
+        "apiKey": os.getenv("BITGET_API_KEY"),
+        "secret": os.getenv("BITGET_API_SECRET"),
+        "password": os.getenv("BITGET_API_PASSPHRASE")  # If applicable
     })
     
     # Pass the exchange to UserInterface

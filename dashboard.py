@@ -1,131 +1,122 @@
-import asyncio
 from rich.console import Console
-from rich.live import Live
 from rich.table import Table
-from rich.text import Text
+from rich.layout import Layout
 from rich.panel import Panel
-from rich.progress import Progress, BarColumn, TextColumn
-import random
+from rich.live import Live
+from rich.text import Text
+import asyncio
+import logging
 
 class Dashboard:
     """
-    Live Dashboard displaying strategies, trades, and market data.
+    Dashboard for displaying live updates on trades, strategies, and market details.
     """
 
-    def __init__(self):
+    def __init__(self, exchange, strategy_manager, performance_manager):
         self.console = Console()
-        self.live_table = Table(title="📊 Live Trading Dashboard", title_style="bold cyan", box="SIMPLE")
-        self.progress_bars = {}
-        self.progress = Progress(
-            TextColumn("[bold blue]{task.description}"),
-            BarColumn(bar_width=None),
-            TextColumn("[progress.percentage]{task.percentage:>3.1f}%"),
-            console=self.console,
+        self.exchange = exchange
+        self.strategy_manager = strategy_manager
+        self.performance_manager = performance_manager
+        self.logger = logging.getLogger(self.__class__.__name__)
+
+        # Dashboard layout
+        self.layout = Layout()
+        self.layout.split(
+            Layout(name="header", size=3),
+            Layout(name="body"),
+            Layout(name="footer", size=3),
         )
-        self.setup_table()
+        self.layout["body"].split_row(
+            Layout(name="strategies"),
+            Layout(name="trades"),
+            Layout(name="market")
+        )
+        self.init_header()
+        self.init_footer()
 
-    def setup_table(self):
-        """
-        Sets up the structure of the live dashboard table.
-        """
-        self.live_table.add_column("Strategy", justify="left", style="bold green")
-        self.live_table.add_column("Pair", justify="center", style="bold yellow")
-        self.live_table.add_column("Type", justify="center", style="bold magenta")
-        self.live_table.add_column("Status", justify="center", style="cyan")
-        self.live_table.add_column("PnL (%)", justify="right", style="bold red")
-        self.live_table.add_column("Leverage", justify="center", style="bold white")
-        self.live_table.add_column("Last Update", justify="right", style="dim")
+    def init_header(self):
+        """Initializes the header layout."""
+        header_text = Text("GenStrat Trading Dashboard", style="bold cyan")
+        self.layout["header"].update(Panel(header_text, title="Welcome", title_align="left"))
 
-    def add_progress_bar(self, task_name):
-        """
-        Adds a progress bar for a new task to track strategy progress.
-        """
-        if task_name not in self.progress_bars:
-            self.progress_bars[task_name] = self.progress.add_task(task_name, total=100)
+    def init_footer(self):
+        """Initializes the footer layout."""
+        footer_text = "[Press Ctrl+C to exit. Use arrow keys to navigate when applicable.]"
+        self.layout["footer"].update(Panel(footer_text, style="bold green"))
 
-    def update_progress_bar(self, task_name, progress_value):
-        """
-        Updates the progress bar for a specific task.
-        """
-        if task_name in self.progress_bars:
-            self.progress.update(self.progress_bars[task_name], completed=progress_value)
+    def generate_strategies_panel(self):
+        """Generates a panel displaying strategies."""
+        table = Table(title="Active Strategies", style="cyan")
+        table.add_column("ID", justify="center", style="white")
+        table.add_column("Title", justify="left", style="magenta")
+        table.add_column("Active", justify="center", style="green")
 
-    async def update_table(self, strategies):
-        """
-        Updates the dashboard table with live data from active strategies.
-        """
-        self.live_table.rows.clear()  # Clear the table before updating
-
+        strategies = self.strategy_manager.list_strategies()
         for strategy in strategies:
-            pair = strategy.get("pair", "Unknown")
-            strategy_name = strategy.get("name", "N/A")
-            pnl = f"{strategy.get('pnl', 0.0):.2f}%"
-            leverage = strategy.get("leverage", "1x")
-            status = strategy.get("status", "Active")
-            last_update = strategy.get("last_update", "Just Now")
-
-            self.live_table.add_row(
-                strategy_name,
-                pair,
-                strategy.get("type", "Spot"),
-                Text(status, style="green" if "Active" in status else "red"),
-                pnl,
-                leverage,
-                last_update,
+            table.add_row(
+                strategy['id'],
+                strategy['title'],
+                "Yes" if strategy['active'] else "No"
             )
 
-    async def display_dashboard(self, fetch_strategy_data):
-        """
-        Displays the live dashboard with real-time updates.
-        :param fetch_strategy_data: A coroutine function that fetches live strategy data.
-        """
-        with Live(
-            Panel(self.live_table, title="🚀 Trading Insights", title_align="left"),
-            refresh_per_second=2,
-            console=self.console,
-        ):
-            with self.progress:
-                while True:
-                    strategies = await fetch_strategy_data()
-                    await self.update_table(strategies)
-                    for strategy in strategies:
-                        task_name = strategy["name"]
-                        progress = strategy.get("progress", random.randint(10, 90))
-                        self.add_progress_bar(task_name)
-                        self.update_progress_bar(task_name, progress)
-                    await asyncio.sleep(1)
+        return Panel(table, title="Strategies")
 
-# Example Usage
-async def mock_fetch_strategy_data():
-    """
-    Mock function to simulate fetching strategy data.
-    """
-    return [
-        {
-            "name": "Strategy 1",
-            "pair": "BTC/USDT",
-            "type": "Futures",
-            "status": "Active",
-            "pnl": random.uniform(-10, 15),
-            "leverage": "5x",
-            "last_update": "2 seconds ago",
-            "progress": random.randint(0, 100),
-        },
-        {
-            "name": "Strategy 2",
-            "pair": "ETH/USDT",
-            "type": "Spot",
-            "status": "Inactive",
-            "pnl": random.uniform(-5, 20),
-            "leverage": "1x",
-            "last_update": "10 seconds ago",
-            "progress": random.randint(0, 100),
-        },
-    ]
+    def generate_trades_panel(self):
+        """Generates a panel displaying active trades."""
+        table = Table(title="Live Trades", style="yellow")
+        table.add_column("Trade ID", justify="center", style="white")
+        table.add_column("Asset", justify="center", style="magenta")
+        table.add_column("Status", justify="center", style="green")
+        table.add_column("PnL", justify="right", style="red")
 
-async def main():
-    dashboard = Dashboard()
-    await dashboard.display_dashboard(mock_fetch_strategy_data)
+        trades = self.strategy_manager.get_active_trades()
+        for trade in trades:
+            table.add_row(
+                trade['trade_id'],
+                trade['asset'],
+                trade['status'],
+                f"{trade.get('pnl', 0):.2f} USDT"
+            )
 
-if __name__ == "__main__":
-    asyncio.run(main())
+        return Panel(table, title="Trades")
+
+    def generate_market_panel(self):
+        """Generates a panel displaying market information."""
+        table = Table(title="Market Overview", style="blue")
+        table.add_column("Asset", justify="center", style="magenta")
+        table.add_column("Price", justify="right", style="white")
+        table.add_column("24h Change", justify="right", style="green")
+
+        try:
+            market_data = asyncio.run(self.exchange.fetch_tickers())
+            for asset, data in market_data.items():
+                table.add_row(
+                    asset,
+                    f"{data['last']:.2f}",
+                    f"{data['percentage']:.2f}%"
+                )
+        except Exception as e:
+            self.logger.error(f"Failed to fetch market data: {e}")
+            table.add_row("N/A", "N/A", "N/A")
+
+        return Panel(table, title="Market")
+
+    async def update_dashboard(self):
+        """Updates the dashboard with live data."""
+        with Live(self.layout, refresh_per_second=2, console=self.console):
+            while True:
+                try:
+                    self.layout["body"]["strategies"].update(self.generate_strategies_panel())
+                    self.layout["body"]["trades"].update(self.generate_trades_panel())
+                    self.layout["body"]["market"].update(self.generate_market_panel())
+                except Exception as e:
+                    self.logger.error(f"Dashboard update error: {e}")
+
+                await asyncio.sleep(5)
+
+    def run(self):
+        """Runs the dashboard in a loop."""
+        try:
+            asyncio.run(self.update_dashboard())
+        except KeyboardInterrupt:
+            self.console.print("\n[bold red]Dashboard stopped.[/bold red]")
