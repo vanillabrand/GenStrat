@@ -11,7 +11,7 @@ from risk_manager import RiskManager
 from budget_manager import BudgetManager
 from performance_manager import PerformanceManager
 from backtester import Backtester
-from dashboard import Dashboard
+from dashboard import Dashboard 
 
 
 class UserInterface:
