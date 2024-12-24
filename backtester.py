@@ -1,171 +1,142 @@
+import backtrader as bt
 import pandas as pd
 import numpy as np
-import logging
-
+from datetime import datetime, timedelta
 
 
 class Backtester:
     """
-    Provides functionality for backtesting trading strategies using historical data.
+    A class to handle backtesting of trading strategies with both historical and synthetic data using Backtrader.
     """
 
-    def __init__(self):
-        self.logger = logging.getLogger(self.__class__.__name__)
-
-    def run_backtest(self, strategy, historical_data):
+    def __init__(self, strategy_manager, budget_manager):
         """
-        Runs a backtest for a given strategy on historical data.
+        Initializes the backtester with a reference to the strategy manager and budget manager.
+        :param strategy_manager: An instance of StrategyManager to retrieve strategy data.
+        :param budget_manager: An instance of BudgetManager to retrieve allocated budgets.
+        """
+        self.strategy_manager = strategy_manager
+        self.budget_manager = budget_manager
 
-        :param strategy: The strategy JSON containing conditions, trade parameters, and risk management.
-        :param historical_data: A Pandas DataFrame containing historical OHLCV data.
+    def run_backtest(self, strategy_id, historical_data):
+        """
+        Runs a backtest for the provided strategy using the given historical data.
+        :param strategy_id: The ID of the strategy to backtest.
+        :param historical_data: A pandas DataFrame containing historical OHLCV data.
         """
         try:
-            self.logger.info("Starting backtest...")
-            results = self.simulate_trades(strategy, historical_data)
-            self.display_results(results)
+            cerebro = bt.Cerebro()
+
+            # Load the historical data into Backtrader
+            data = self._convert_dataframe_to_bt_feed(historical_data)
+            cerebro.adddata(data)
+
+            # Retrieve strategy and budget
+            strategy = self.strategy_manager.load_strategy(strategy_id)
+            starting_cash = self.budget_manager.get_budget(strategy_id)
+            if starting_cash is None:
+                starting_cash = 100000.0  # Default value if no budget is set
+
+            cerebro.broker.set_cash(starting_cash)
+
+            # Dynamically generate and add strategy
+            bt_strategy = self._create_bt_strategy(strategy)
+            cerebro.addstrategy(bt_strategy)
+
+            print(f"Starting Portfolio Value: {cerebro.broker.getvalue():.2f} USDT")
+            cerebro.run()
+            print(f"Final Portfolio Value: {cerebro.broker.getvalue():.2f} USDT")
+
+            # Plot the results
+            cerebro.plot()
         except Exception as e:
-            self.logger.error(f"Backtest failed: {e}")
-            raise
+            print(f"Error during backtest: {e}")
 
-    def simulate_trades(self, strategy, historical_data):
-        """
-        Simulates trades based on the strategy and historical data.
-
-        :param strategy: The strategy JSON.
-        :param historical_data: A Pandas DataFrame containing historical OHLCV data.
-        :return: A dictionary containing backtest results.
-        """
-        conditions = strategy['conditions']
-        entry_conditions = conditions['entry']
-        exit_conditions = conditions['exit']
-
-        # Initialize backtest metrics
-        balance = 10000  # Starting balance in USD
-        position = 0  # Current position size in asset units
-        equity_curve = []  # Track equity over time
-
-        # Process historical data
-        for index, row in historical_data.iterrows():
-            price = row['close']
-
-            # Check entry conditions
-            if self.evaluate_conditions(entry_conditions, row):
-                position_size = balance / price
-                position += position_size
-                balance -= position_size * price
-                self.logger.info(f"Entered position at {price}, size: {position_size}")
-
-            # Check exit conditions
-            if self.evaluate_conditions(exit_conditions, row) and position > 0:
-                balance += position * price
-                self.logger.info(f"Exited position at {price}, size: {position}")
-                position = 0
-
-            # Update equity
-            equity = balance + (position * price)
-            equity_curve.append(equity)
-
-        # Finalize metrics
-        pnl = balance - 10000  # Profit or Loss
-        roi = (pnl / 10000) * 100  # Return on Investment
-
-        return {
-            'final_balance': balance,
-            'pnl': pnl,
-            'roi': roi,
-            'equity_curve': equity_curve
-        }
-
-    def evaluate_conditions(self, conditions, row):
-        """
-        Evaluates a set of conditions on a given row of data.
-
-        :param conditions: A list of conditions to evaluate.
-        :param row: A Pandas Series representing a row of historical data.
-        :return: True if all conditions are met, False otherwise.
-        """
-        for condition in conditions:
-            indicator = condition['indicator']
-            operator = condition['operator']
-            value = condition['value']
-
-            # Get the indicator value from the row
-            indicator_value = row.get(indicator)
-            if indicator_value is None:
-                self.logger.error(f"Missing indicator '{indicator}' in data.")
-                return False
-
-            # Evaluate the condition
-            if not self.compare(indicator_value, operator, value):
-                return False
-
-        return True
-
-    def compare(self, a, operator, b):
-        """
-        Compares two values based on an operator.
-
-        :param a: The first value.
-        :param operator: The comparison operator (>, <, >=, <=, ==).
-        :param b: The second value.
-        :return: The result of the comparison.
-        """
-        if operator == '>':
-            return a > b
-        elif operator == '<':
-            return a < b
-        elif operator == '==':
-            return a == b
-        elif operator == '>=':
-            return a >= b
-        elif operator == '<=':
-            return a <= b
-        else:
-            self.logger.error(f"Unsupported operator: {operator}")
-            raise ValueError(f"Unsupported operator: {operator}")
-
-    def display_results(self, results):
-        """
-        Displays the results of the backtest.
-
-        :param results: A dictionary containing backtest results.
-        """
-        print("\n--- Backtest Results ---")
-        print(f"Final Balance: ${results['final_balance']:.2f}")
-        print(f"PnL: ${results['pnl']:.2f}")
-        print(f"ROI: {results['roi']:.2f}%")
-        print("Equity Curve:")
-        print(results['equity_curve'])
-
-    def generate_synthetic_data(timeframe: str, num_entries: int = 1000) -> pd.DataFrame:
+    def generate_synthetic_data(self, timeframe: str, duration: int) -> pd.DataFrame:
         """
         Generates synthetic OHLCV data for backtesting.
-        :param timeframe: The timeframe for the synthetic data (e.g., '1m', '1h', '1d').
-        :param num_entries: The number of data points to generate.
-        :return: A DataFrame containing synthetic OHLCV data.
+        :param timeframe: The timeframe for the data (e.g., '1m', '5m', '1h', '1d').
+        :param duration: Duration in days for which the data is generated.
+        :return: A pandas DataFrame containing synthetic OHLCV data.
         """
-        now = pd.Timestamp.now()
-        time_deltas = {
-            '1m': pd.Timedelta(minutes=1),
-            '5m': pd.Timedelta(minutes=5),
-            '1h': pd.Timedelta(hours=1),
-            '1d': pd.Timedelta(days=1),
-        }
-        delta = time_deltas.get(timeframe, pd.Timedelta(minutes=1))
+        interval_minutes = self._parse_timeframe_to_minutes(timeframe)
+        end_time = datetime.now()
+        start_time = end_time - timedelta(days=duration)
+        total_intervals = int((end_time - start_time).total_seconds() / 60 / interval_minutes)
 
-        timestamps = [now - i * delta for i in range(num_entries)][::-1]
-        opens = np.random.uniform(100, 200, size=num_entries)
-        highs = opens + np.random.uniform(0, 10, size=num_entries)
-        lows = opens - np.random.uniform(0, 10, size=num_entries)
-        closes = np.random.uniform(lows, highs, size=num_entries)
-        volumes = np.random.uniform(1000, 5000, size=num_entries)
+        # Generate timestamps
+        timestamps = [start_time + timedelta(minutes=i * interval_minutes) for i in range(total_intervals)]
 
-        data = {
-            'timestamp': timestamps,
-            'open': opens,
-            'high': highs,
-            'low': lows,
-            'close': closes,
-            'volume': volumes,
-        }
-        return pd.DataFrame(data)
+        # Generate synthetic OHLCV data
+        prices = self._generate_price_series(total_intervals)
+        open_prices, high_prices, low_prices, close_prices = self._generate_ohlc(prices)
+        volumes = self._generate_volumes(total_intervals)
+
+        synthetic_data = pd.DataFrame({
+            'datetime': timestamps,
+            'open': open_prices,
+            'high': high_prices,
+            'low': low_prices,
+            'close': close_prices,
+            'volume': volumes
+        })
+        synthetic_data.set_index('datetime', inplace=True)
+        return synthetic_data
+
+    def _convert_dataframe_to_bt_feed(self, df: pd.DataFrame) -> bt.feeds.PandasData:
+        """
+        Converts a pandas DataFrame to a Backtrader-compatible data feed.
+        :param df: The pandas DataFrame with OHLCV data.
+        :return: A Backtrader data feed.
+        """
+        return bt.feeds.PandasData(dataname=df)
+
+    def _create_bt_strategy(self, strategy):
+        """
+        Dynamically creates a Backtrader strategy class from the given strategy.
+        :param strategy: A dictionary containing the strategy's logic and parameters.
+        :return: A dynamically generated Backtrader strategy class.
+        """
+        class DynamicStrategy(bt.Strategy):
+            params = strategy['parameters']
+
+            def __init__(self):
+                self.indicators = []
+                for indicator in strategy['indicators']:
+                    func = getattr(bt.indicators, indicator['name'])
+                    params = indicator.get('params', {})
+                    self.indicators.append(func(self.data, **params))
+
+            def next(self):
+                # Entry condition
+                if all(indicator[0] for indicator in self.indicators):
+                    self.buy(size=self.params.get('size', 1))
+
+                # Exit condition
+                if any(indicator[1] for indicator in self.indicators):
+                    self.sell(size=self.params.get('size', 1))
+
+        return DynamicStrategy
+
+    def _parse_timeframe_to_minutes(self, timeframe: str) -> int:
+        if timeframe.endswith('m'):
+            return int(timeframe[:-1])
+        elif timeframe.endswith('h'):
+            return int(timeframe[:-1]) * 60
+        elif timeframe.endswith('d'):
+            return int(timeframe[:-1]) * 60 * 24
+        else:
+            raise ValueError(f"Unsupported timeframe: {timeframe}")
+
+    def _generate_price_series(self, total_intervals: int) -> np.ndarray:
+        return np.cumprod(1 + np.random.normal(0, 0.01, total_intervals)) * 100
+
+    def _generate_ohlc(self, prices: np.ndarray) -> tuple:
+        open_prices = prices
+        high_prices = open_prices + np.random.uniform(0.5, 2.0, len(prices))
+        low_prices = open_prices - np.random.uniform(0.5, 2.0, len(prices))
+        close_prices = prices + np.random.uniform(-1.0, 1.0, len(prices))
+        return open_prices, high_prices, low_prices, close_prices
+
+    def _generate_volumes(self, total_intervals: int) -> np.ndarray:
+        return np.random.randint(100, 1000, total_intervals)

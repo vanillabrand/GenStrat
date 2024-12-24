@@ -28,7 +28,7 @@ class UserInterface:
         self.risk_manager = RiskManager()
         self.budget_manager = BudgetManager()
         self.performance_manager = PerformanceManager()
-        self.backtester = Backtester()
+        self.backtester = Backtester(self.strategy_manager, self.budget_manager)
         self.dashboard = Dashboard(exchange, self.strategy_manager, self.performance_manager)
 
         self.configure_layout()
@@ -120,7 +120,7 @@ class UserInterface:
             self.console.print(os.getenv("OPENAI_API_KEY"))
             description = input("Enter the strategy description: ").strip()
 
-            interpreter = StrategyInterpreter(os.getenv("OPENAI_API_KEY"))
+            interpreter = StrategyInterpreter("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")
 
             strategy_json = interpreter.interpret(description)
 
