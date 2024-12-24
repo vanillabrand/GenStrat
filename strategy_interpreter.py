@@ -11,6 +11,7 @@ class StrategyInterpreter:
         self.logger = logging.getLogger(self.__class__.__name__)
         self._configure_logger()
         self.cache = {}
+        openai.api_key = self.api_key 
 
     def _configure_logger(self):
         """Configure logger with default settings if not already set."""
