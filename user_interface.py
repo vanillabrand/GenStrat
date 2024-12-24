@@ -117,10 +117,11 @@ class UserInterface:
         """Prompts the user to create a new strategy."""
         try:
             title = input("Enter the strategy title: ").strip()
+            self.console.print(os.getenv("OPENAI_API_KEY"))
             description = input("Enter the strategy description: ").strip()
 
-
             interpreter = StrategyInterpreter(os.getenv("OPENAI_API_KEY"))
+
             strategy_json = interpreter.interpret(description)
 
             self.strategy_manager.save_strategy(title, description, strategy_json)
