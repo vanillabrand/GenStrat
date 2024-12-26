@@ -263,7 +263,7 @@ class UserInterface:
             elif source_choice == "2":
                 timeframe = input("Enter timeframe (e.g., 1m, 5m, 1h): ")
                 duration = int(input("Enter duration in days: "))
-                historical_data = generate_synthetic_data(timeframe, duration)
+                historical_data = self.backtester.generate_synthetic_data(timeframe, duration)
             else:
                 self.console.print("[bold red]Invalid choice.[/bold red]")
                 return

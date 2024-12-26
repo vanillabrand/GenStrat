@@ -1,6 +1,7 @@
 import backtrader as bt
 import pandas as pd
 import numpy as np
+from rich.console import Console    
 from datetime import datetime, timedelta
 
 
@@ -31,11 +32,14 @@ class Backtester:
             data = self._convert_dataframe_to_bt_feed(historical_data)
             cerebro.adddata(data)
 
-            # Retrieve strategy and budget
+            # Retrieve the strategy and budget
             strategy = self.strategy_manager.load_strategy(strategy_id)
+            if not strategy:
+                raise ValueError(f"Strategy with ID '{strategy_id}' not found.")
+
             starting_cash = self.budget_manager.get_budget(strategy_id)
             if starting_cash is None:
-                starting_cash = 100000.0  # Default value if no budget is set
+                starting_cash = 100000.0  # Default fallback value
 
             cerebro.broker.set_cash(starting_cash)
 
@@ -43,14 +47,29 @@ class Backtester:
             bt_strategy = self._create_bt_strategy(strategy)
             cerebro.addstrategy(bt_strategy)
 
-            print(f"Starting Portfolio Value: {cerebro.broker.getvalue():.2f} USDT")
+            # Print the starting portfolio value
+            self.console.print(f"[bold cyan]Starting Portfolio Value: {cerebro.broker.getvalue():.2f} USDT[/bold cyan]")
+
+            # Run the backtest
+            self.console.print("[bold yellow]Running backtest...[/bold yellow]")
             cerebro.run()
-            print(f"Final Portfolio Value: {cerebro.broker.getvalue():.2f} USDT")
+
+            # Print the final portfolio value
+            final_value = cerebro.broker.getvalue()
+            self.console.print(f"[bold green]Final Portfolio Value: {final_value:.2f} USDT[/bold green]")
 
             # Plot the results
+            self.console.print("[bold magenta]Generating backtest plot...[/bold magenta]")
             cerebro.plot()
+
+            # Optionally record results
+            self.performance_manager.record_backtest_result(strategy_id, starting_cash, final_value)
+
+        except ValueError as ve:
+            self.console.print(f"[bold red]ValueError: {ve}[/bold red]")
         except Exception as e:
-            print(f"Error during backtest: {e}")
+            self.console.print(f"[bold red]Error during backtest: {e}[/bold red]")
+            self.logger.error(f"Error during backtest for strategy '{strategy_id}': {e}")
 
     def generate_synthetic_data(self, timeframe: str, duration: int) -> pd.DataFrame:
         """
