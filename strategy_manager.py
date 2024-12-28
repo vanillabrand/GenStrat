@@ -2,7 +2,7 @@ import redis
 import json
 import uuid
 import logging
-from typing import Dict, List
+from typing import Dict, List, Union
 
 
 class StrategyManager:
@@ -12,21 +12,36 @@ class StrategyManager:
     """
 
     def __init__(self, redis_host='localhost', redis_port=6379, redis_db=0):
-        self.redis_client = redis.StrictRedis(host=redis_host, port=redis_port, db=redis_db, decode_responses=True)
+        self.redis_client = redis.StrictRedis(
+            host=redis_host, port=redis_port, db=redis_db, decode_responses=True
+        )
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def generate_unique_id(self) -> str:
-        """
-        Generates a unique UUID for a new strategy.
-        """
+        """Generates a unique ID for a strategy."""
         return str(uuid.uuid4())
+
+    def validate_strategy_id(self, strategy_input: Union[str, Dict]) -> str:
+        """
+        Validates and extracts the strategy ID, converting it to a string if necessary.
+        :param strategy_input: Strategy ID or dictionary containing the ID.
+        :return: Validated strategy ID as a string.
+        """
+        if isinstance(strategy_input, dict):
+            strategy_id = strategy_input.get('id')
+        else:
+            strategy_id = strategy_input
+
+        if not strategy_id:
+            raise ValueError("Strategy ID cannot be None or empty.")
+        return str(strategy_id)
 
     def save_strategy(self, title: str, description: str, strategy_data: Dict) -> str:
         """
-        Saves a new strategy with a unique ID and title.
+        Saves a new strategy to Redis.
         :param title: Title of the strategy.
         :param description: Description of the strategy.
-        :param strategy_data: Strategy parameters.
+        :param strategy_data: JSON-serializable dictionary containing strategy details.
         :return: The unique ID of the saved strategy.
         """
         strategy_id = self.generate_unique_id()
@@ -36,46 +51,50 @@ class StrategyManager:
             "title": title,
             "description": description,
             "data": json.dumps(strategy_data),
-            "active": "False"
+            "active": "False",
         }
+
         try:
-            self.redis_client.hmset(key, strategy_record)
+            self.redis_client.hset(key, mapping=strategy_record)
             self.logger.info(f"Strategy '{title}' with ID '{strategy_id}' saved successfully.")
             return strategy_id
         except Exception as e:
             self.logger.error(f"Failed to save strategy '{title}': {e}")
             raise
 
-    def update_strategy(self, strategy_id: str, updates: Dict):
+    def update_strategy(self, strategy_input: Union[str, Dict], updates: Dict):
         """
-        Updates an existing strategy with new data.
-        :param strategy_id: The unique ID of the strategy.
+        Updates an existing strategy's fields.
+        :param strategy_input: Strategy ID or dictionary containing the ID.
         :param updates: Dictionary of fields to update.
         """
+        strategy_id = self.validate_strategy_id(strategy_input)
         key = f"strategy:{strategy_id}"
+
         if not self.redis_client.exists(key):
-            self.logger.error(f"Strategy with ID '{strategy_id}' does not exist.")
             raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
+
         try:
             existing_data = self.redis_client.hgetall(key)
-            for field, value in updates.items():
-                if field == 'data':
-                    merged_data = json.loads(existing_data['data'])
-                    merged_data.update(value)
-                    updates['data'] = json.dumps(merged_data)
-            self.redis_client.hmset(key, updates)
+            if 'data' in updates:
+                merged_data = json.loads(existing_data['data'])
+                merged_data.update(updates.pop('data'))
+                updates['data'] = json.dumps(merged_data)
+
+            self.redis_client.hset(key, mapping=updates)
             self.logger.info(f"Strategy ID '{strategy_id}' updated successfully.")
         except Exception as e:
             self.logger.error(f"Failed to update strategy ID '{strategy_id}': {e}")
             raise
 
-    def edit_strategy(self, strategy_id: str, new_title: str = None, new_description: str = None, new_data: Dict = None):
+    def edit_strategy(self, strategy_input: Union[str, Dict], new_title: str = None,
+                      new_description: str = None, new_data: Dict = None):
         """
-        Allows editing of the strategy title, description, or data.
-        :param strategy_id: The ID of the strategy to edit.
-        :param new_title: The new title (if any).
-        :param new_description: The new description (if any).
-        :param new_data: The new strategy data (if any).
+        Edits a strategy's details.
+        :param strategy_input: Strategy ID or dictionary containing the ID.
+        :param new_title: Updated title for the strategy.
+        :param new_description: Updated description for the strategy.
+        :param new_data: Updated strategy data.
         """
         updates = {}
         if new_title:
@@ -84,24 +103,26 @@ class StrategyManager:
             updates['description'] = new_description
         if new_data:
             updates['data'] = new_data
-        self.update_strategy(strategy_id, updates)
 
-    def load_strategy(self, strategy_id: str) -> Dict:
+        self.update_strategy(strategy_input, updates)
+
+    def load_strategy(self, strategy_input: Union[str, Dict]) -> Dict:
         """
-        Loads a strategy by its unique ID.
-        :param strategy_id: The unique ID of the strategy.
-        :return: A dictionary containing the strategy data.
+        Loads a strategy from Redis.
+        :param strategy_input: Strategy ID or dictionary containing the ID.
+        :return: A dictionary with the strategy details.
         """
+        strategy_id = self.validate_strategy_id(strategy_input)
         key = f"strategy:{strategy_id}"
+
         if not self.redis_client.exists(key):
-            self.logger.error(f"Strategy with ID '{strategy_id}' does not exist.")
             raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
+
         try:
-            data = self.redis_client.hgetall(key)
-            data['data'] = json.loads(data['data'])
-            data['active'] = data['active'] == "True"
-            self.logger.info(f"Loaded strategy ID '{strategy_id}' successfully.")
-            return data
+            strategy = self.redis_client.hgetall(key)
+            strategy['data'] = json.loads(strategy['data'])
+            strategy['active'] = strategy['active'] == "True"
+            return strategy
         except Exception as e:
             self.logger.error(f"Failed to load strategy ID '{strategy_id}': {e}")
             raise
@@ -109,7 +130,7 @@ class StrategyManager:
     def list_strategies(self) -> List[Dict]:
         """
         Lists all saved strategies.
-        :return: List of dictionaries containing strategy IDs, titles, and activation statuses.
+        :return: A list of dictionaries with strategy details.
         """
         try:
             keys = self.redis_client.keys("strategy:*")
@@ -121,21 +142,22 @@ class StrategyManager:
                     "title": data['title'],
                     "active": data['active'] == "True"
                 })
-            self.logger.info("Listed all strategies successfully.")
             return strategies
         except Exception as e:
             self.logger.error(f"Failed to list strategies: {e}")
             raise
 
-    def activate_strategy(self, strategy_id: str):
+    def activate_strategy(self, strategy_input: Union[str, Dict]):
         """
-        Activates a strategy by setting its active status to True.
-        :param strategy_id: The unique ID of the strategy.
+        Activates a strategy for trading.
+        :param strategy_input: Strategy ID or dictionary containing the ID.
         """
+        strategy_id = self.validate_strategy_id(strategy_input)
         key = f"strategy:{strategy_id}"
+
         if not self.redis_client.exists(key):
-            self.logger.error(f"Strategy with ID '{strategy_id}' does not exist.")
             raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
+
         try:
             self.redis_client.hset(key, "active", "True")
             self.logger.info(f"Activated strategy ID '{strategy_id}'.")
@@ -143,15 +165,17 @@ class StrategyManager:
             self.logger.error(f"Failed to activate strategy ID '{strategy_id}': {e}")
             raise
 
-    def deactivate_strategy(self, strategy_id: str):
+    def deactivate_strategy(self, strategy_input: Union[str, Dict]):
         """
-        Deactivates a strategy by setting its active status to False.
-        :param strategy_id: The unique ID of the strategy.
+        Deactivates a strategy.
+        :param strategy_input: Strategy ID or dictionary containing the ID.
         """
+        strategy_id = self.validate_strategy_id(strategy_input)
         key = f"strategy:{strategy_id}"
+
         if not self.redis_client.exists(key):
-            self.logger.error(f"Strategy with ID '{strategy_id}' does not exist.")
             raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
+
         try:
             self.redis_client.hset(key, "active", "False")
             self.logger.info(f"Deactivated strategy ID '{strategy_id}'.")
@@ -159,51 +183,20 @@ class StrategyManager:
             self.logger.error(f"Failed to deactivate strategy ID '{strategy_id}': {e}")
             raise
 
-    def remove_strategy(self, strategy_id: str):
+    def remove_strategy(self, strategy_input: Union[str, Dict]):
         """
-        Removes a strategy by its unique ID.
-        :param strategy_id: The unique ID of the strategy.
+        Removes a strategy from Redis.
+        :param strategy_input: Strategy ID or dictionary containing the ID.
         """
+        strategy_id = self.validate_strategy_id(strategy_input)
         key = f"strategy:{strategy_id}"
+
         if not self.redis_client.exists(key):
-            self.logger.error(f"Strategy with ID '{strategy_id}' does not exist.")
             raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
+
         try:
             self.redis_client.delete(key)
             self.logger.info(f"Removed strategy ID '{strategy_id}' successfully.")
         except Exception as e:
             self.logger.error(f"Failed to remove strategy ID '{strategy_id}': {e}")
             raise
-
-    def get_active_strategies(self) -> List[Dict]:
-        """
-        Retrieves all active strategies.
-        :return: List of dictionaries containing active strategy IDs and data.
-        """
-        try:
-            keys = self.redis_client.keys("strategy:*")
-            active_strategies = []
-            for key in keys:
-                data = self.redis_client.hgetall(key)
-                if data['active'] == "True":
-                    active_strategies.append({
-                        "id": data['id'],
-                        "title": data['title'],
-                        "data": json.loads(data['data'])
-                    })
-            self.logger.info("Retrieved all active strategies successfully.")
-            return active_strategies
-        except Exception as e:
-            self.logger.error(f"Failed to retrieve active strategies: {e}")
-            raise
-
-    def validate_strategy(self, strategy_data: Dict) -> bool:
-        """
-        Validates a strategy to ensure all required fields are present.
-        :param strategy_data: The strategy data to validate.
-        :return: True if valid, False otherwise.
-        """
-        required_keys = ["strategy_name", "market_type", "assets", "trade_parameters", "conditions", "risk_management"]
-        is_valid = all(key in strategy_data and strategy_data[key] for key in required_keys)
-        self.logger.debug(f"Strategy validation result: {is_valid}")
-        return is_valid

@@ -12,6 +12,7 @@ from backtester import Backtester
 from dashboard import Dashboard
 from strategy_interpreter import StrategyInterpreter
 
+
 class UserInterface:
     """
     Handles terminal-based interaction for managing trading strategies, budgets, risk levels, and performance metrics.
@@ -76,8 +77,9 @@ class UserInterface:
             ("5", "Activate Strategy"),
             ("6", "View Performance Metrics"),
             ("7", "Run Backtests"),
-            ("8", "Dashboard"),
-            ("9", "Exit"),
+            ("8", "Run Scenario Tests"),  # New option for Scenario Testing
+            ("9", "Dashboard"),
+            ("10", "Exit"),
         ]
 
         for option, description in options:
@@ -95,8 +97,9 @@ class UserInterface:
             "5": self.activate_strategy,
             "6": self.view_performance_metrics,
             "7": self.run_backtests,
-            "8": self.view_dashboard,
-            "9": self.exit_program,
+            "8": self.run_scenario_tests,  # Link to Scenario Testing
+            "9": self.view_dashboard,
+            "10": self.exit_program,
         }
 
         action = menu_options.get(choice)
@@ -107,21 +110,35 @@ class UserInterface:
             self.console.print("[bold red]Invalid choice. Please try again.[/bold red]")
             input("Press Enter to continue...")
 
-    def exit_program(self):
-        """Exits the program."""
-        self.console.print("[bold cyan]Exiting the program...[/bold cyan]")
-        exit(0)
+    def get_strategy_selection(self, prompt: str):
+        """
+        Lists strategies and prompts the user to select one by index.
+        :param prompt: Instructional text for the user.
+        :return: The selected strategy dictionary or None if invalid.
+        """
+        strategies = self.list_strategies()
+        if not strategies:
+            self.console.print("[bold red]No strategies found. Returning to main menu.[/bold red]")
+            return None
 
+        try:
+            choice = int(input(f"{prompt} (Enter a number): ")) - 1
+            if 0 <= choice < len(strategies):
+                return strategies[choice]
+            else:
+                self.console.print("[bold red]Invalid selection. Returning to main menu.[/bold red]")
+                return None
+        except ValueError:
+            self.console.print("[bold red]Invalid input. Please enter a number.[/bold red]")
+            return None
 
     def create_new_strategy(self):
         """Prompts the user to create a new strategy."""
         try:
             title = input("Enter the strategy title: ").strip()
-            self.console.print(os.getenv("OPENAI_API_KEY"))
             description = input("Enter the strategy description: ").strip()
 
-            interpreter = StrategyInterpreter("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")
-
+            interpreter = StrategyInterpreter()
             strategy_json = interpreter.interpret(description)
 
             self.strategy_manager.save_strategy(title, description, strategy_json)
@@ -149,49 +166,80 @@ class UserInterface:
             self.console.print(f"[bold red]Error: {e}[/bold red]")
             return []
 
-    def get_strategy_selection(self, prompt: str):
-        """
-        Lists strategies and prompts the user to select one by index.
-        :param prompt: Instructional text for the user.
-        :return: The selected strategy or None if the selection was invalid.
-        """
-        strategies = self.list_strategies()
-        if not strategies:
-            self.console.print("[bold red]No strategies found. Returning to main menu.[/bold red]")
-            return None
-
-        try:
-            choice = int(input(f"{prompt} (Enter a number): ")) - 1
-            if 0 <= choice < len(strategies):
-                return strategies[choice]
-            else:
-                self.console.print("[bold red]Invalid selection. Returning to main menu.[/bold red]")
-                return None
-        except ValueError:
-            self.console.print("[bold red]Invalid input. Please enter a number.[/bold red]")
-            return None
-
     def edit_strategy(self):
-        """Allows the user to edit a saved strategy."""
+        """
+        Allows the user to edit a saved strategy.
+        """
         try:
-            strategy = self.get_strategy_selection("Select a strategy to edit")
-            if not strategy:
+            strategies = self.list_strategies()
+            if not strategies:
+                self.console.print("[bold red]No strategies available to edit. Returning to the main menu.[/bold red]")
                 return
 
-            strategy_id = strategy['id']
-            updates = {}
-            title = input(f"Title [{strategy['title']}]: ").strip()
-            if title:
-                updates['title'] = title
+            # Prompt the user to select a strategy
+            self.console.print("\n--- Select a Strategy to Edit ---")
+            for i, strategy in enumerate(strategies, start=1):
+                self.console.print(f"{i}. {strategy['title']} (ID: {strategy['id']})")
 
-            description = input(f"Description [{strategy['description']}]: ").strip()
-            if description:
-                updates['description'] = description
+            choice = int(input("Select a strategy by number: ")) - 1
+            if 0 <= choice < len(strategies):
+                strategy_id = strategies[choice]['id']
+                strategy = self.strategy_manager.load_strategy(strategy_id)
 
-            self.strategy_manager.edit_strategy(strategy_id, updates)
-            self.console.print(f"[bold green]Strategy '{strategy['title']}' updated successfully.[/bold green]")
+                updates = {}
+                title = input(f"New Title [{strategy['title']}]: ").strip()
+                if title:
+                    updates['title'] = title
+
+                description = input(f"New Description [{strategy['description']}]: ").strip()
+                if description:
+                    updates['description'] = description
+
+                self.strategy_manager.edit_strategy(strategy_id, updates)
+                self.console.print(f"[bold green]Strategy '{strategy['title']}' updated successfully.[/bold green]")
+            else:
+                self.console.print("[bold red]Invalid selection. Returning to the main menu.[/bold red]")
+        except ValueError:
+            self.console.print("[bold red]Invalid input. Please enter a valid number.[/bold red]")
         except Exception as e:
             self.logger.error(f"Failed to edit strategy: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+
+    def run_scenario_tests(self):
+        """Prompts the user to run scenario tests."""
+        strategy = self.get_strategy_selection("Select a strategy to run scenario tests")
+        if not strategy:
+            return
+
+        strategy_id = strategy["id"]
+        print("\n--- Select a Scenario ---")
+        print("1. Bull Market")
+        print("2. Bear Market")
+        print("3. Sideways Market")
+        print("4. High Volatility")
+        print("5. Low Volatility")
+        scenario_choice = input("Choose a scenario: ")
+
+        scenarios = {
+            "1": "bull",
+            "2": "bear",
+            "3": "sideways",
+            "4": "high_volatility",
+            "5": "low_volatility"
+        }
+        scenario = scenarios.get(scenario_choice)
+
+        if not scenario:
+            print("[bold red]Invalid choice. Returning to main menu.[/bold red]")
+            return
+
+        timeframe = input("Enter timeframe (e.g., 1m, 5m, 1h): ")
+        duration_days = int(input("Enter duration in days: "))
+
+        try:
+            self.backtester.run_scenario_test(strategy_id, scenario, timeframe, duration_days)
+        except Exception as e:
+            self.logger.error(f"Failed to run scenario tests: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
     def assign_budget(self):
@@ -251,7 +299,6 @@ class UserInterface:
             if not strategy:
                 return
 
-            strategy_id = strategy['id']
             self.console.print("\n1. Load CSV File")
             self.console.print("2. Generate Synthetic Data")
             source_choice = input("Choose data source: ")
@@ -264,11 +311,12 @@ class UserInterface:
                 timeframe = input("Enter timeframe (e.g., 1m, 5m, 1h): ")
                 duration = int(input("Enter duration in days: "))
                 historical_data = self.backtester.generate_synthetic_data(timeframe, duration)
+                self.console.print(f"{timeframe, duration}")
             else:
                 self.console.print("[bold red]Invalid choice.[/bold red]")
                 return
 
-            self.backtester.run_backtest(strategy, historical_data)
+            self.backtester.run_backtest(strategy['id'], historical_data)
             self.console.print(f"[bold green]Backtest completed for strategy '{strategy['title']}'.[/bold green]")
         except Exception as e:
             self.logger.error(f"Failed to run backtest: {e}")
@@ -282,3 +330,8 @@ class UserInterface:
         except Exception as e:
             self.logger.error(f"Failed to display dashboard: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
+
+    def exit_program(self):
+        """Exits the program."""
+        self.console.print("[bold cyan]Exiting the program... Goodbye![/bold cyan]")
+        exit(0)
