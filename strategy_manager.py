@@ -182,6 +182,25 @@ class StrategyManager:
         except Exception as e:
             self.logger.error(f"Failed to deactivate strategy ID '{strategy_id}': {e}")
             raise
+        
+    def remove_strategy(self, strategy_input: Union[str, Dict]) -> None:
+        """
+        Removes a strategy from Redis.
+        :param strategy_input: Strategy ID or dictionary containing the ID.
+        """
+        strategy_id = self.validate_strategy_id(strategy_input)
+        key = f"strategy:{strategy_id}"
+
+        if not self.redis_client.exists(key):
+            self.logger.error(f"Strategy with ID '{strategy_id}' does not exist.")
+            raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
+
+        try:
+            self.redis_client.delete(key)
+            self.logger.info(f"Removed strategy ID '{strategy_id}' successfully.")
+        except Exception as e:
+            self.logger.error(f"Failed to remove strategy ID '{strategy_id}': {e}")
+            raise
 
     def remove_strategy(self, strategy_input: Union[str, Dict]):
         """

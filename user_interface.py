@@ -75,11 +75,13 @@ class UserInterface:
             ("3", "List Strategies"),
             ("4", "Assign Budget"),
             ("5", "Activate Strategy"),
-            ("6", "View Performance Metrics"),
-            ("7", "Run Backtests"),
-            ("8", "Run Scenario Tests"),  # New option for Scenario Testing
-            ("9", "Dashboard"),
-            ("10", "Exit"),
+            ("6", "Deactivate Strategy"),
+            ("7", "Remove Strategy"),
+            ("8", "View Performance Metrics"),
+            ("9", "Run Backtests"),
+            ("10", "Run Scenario Tests"),  # New option for Scenario Testing
+            ("11", "Dashboard"),
+            ("12", "Exit"),
         ]
 
         for option, description in options:
@@ -95,11 +97,13 @@ class UserInterface:
             "3": self.list_strategies,
             "4": self.assign_budget,
             "5": self.activate_strategy,
-            "6": self.view_performance_metrics,
-            "7": self.run_backtests,
-            "8": self.run_scenario_tests,  # Link to Scenario Testing
-            "9": self.view_dashboard,
-            "10": self.exit_program,
+            "6": self.deactivate_strategy,  # Link to Deactivate Strategy
+            "7": self.remove_strategy,  # Link to Remove Strategy
+            "8": self.view_performance_metrics,
+            "9": self.run_backtests,
+            "10": self.run_scenario_tests,  # Link to Scenario Testing
+            "11": self.view_dashboard,
+            "12": self.exit_program,
         }
 
         action = menu_options.get(choice)
@@ -138,7 +142,7 @@ class UserInterface:
             title = input("Enter the strategy title: ").strip()
             description = input("Enter the strategy description: ").strip()
 
-            interpreter = StrategyInterpreter()
+            interpreter = StrategyInterpreter(os.getenv("OPENAI_API_KEY"))
             strategy_json = interpreter.interpret(description)
 
             self.strategy_manager.save_strategy(title, description, strategy_json)
@@ -271,6 +275,20 @@ class UserInterface:
             self.logger.error(f"Failed to activate strategy: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
+    def deactivate_strategy(self):
+        """Allows the user to deactivate a saved strategy."""
+        try:
+            strategy = self.get_strategy_selection("Select a strategy to deactivate")
+            if not strategy:
+                return
+
+            strategy_id = strategy['id']
+            self.strategy_manager.deactivate_strategy(strategy_id)
+            self.console.print(f"[bold green]Strategy '{strategy['title']}' deactivated successfully.[/bold green]")
+        except Exception as e:
+            self.logger.error(f"Failed to deactivate strategy: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+
     def view_performance_metrics(self):
         """Displays performance metrics for a strategy."""
         try:
@@ -293,12 +311,34 @@ class UserInterface:
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
     def run_backtests(self):
-        """Runs backtests for a selected strategy."""
+        """
+        Runs backtests for a selected strategy.
+        """
         try:
-            strategy = self.get_strategy_selection("Select a strategy to run backtests")
-            if not strategy:
+            # List strategies and prompt user to select one
+            strategies = self.strategy_manager.list_strategies()
+            if not strategies:
+                self.console.print("[bold red]No strategies available for backtesting. Please create one first.[/bold red]")
                 return
 
+            table = Table(title="Available Strategies", title_style="bold cyan")
+            table.add_column("Index", style="magenta", justify="center")
+            table.add_column("Title", style="cyan", justify="left")
+            table.add_column("Active", style="green", justify="center")
+            for i, strategy in enumerate(strategies, start=1):
+                table.add_row(str(i), strategy["title"], "Yes" if strategy["active"] else "No")
+            self.console.print(table)
+
+            # Prompt user to select a strategy
+            choice = int(input("Select a strategy to run backtests (Enter a number): ")) - 1
+            if choice < 0 or choice >= len(strategies):
+                self.console.print("[bold red]Invalid selection. Returning to main menu.[/bold red]")
+                return
+
+            selected_strategy = strategies[choice]
+            strategy_id = selected_strategy["id"]
+
+            # Prompt for data source
             self.console.print("\n1. Load CSV File")
             self.console.print("2. Generate Synthetic Data")
             source_choice = input("Choose data source: ")
@@ -311,15 +351,30 @@ class UserInterface:
                 timeframe = input("Enter timeframe (e.g., 1m, 5m, 1h): ")
                 duration = int(input("Enter duration in days: "))
                 historical_data = self.backtester.generate_synthetic_data(timeframe, duration)
-                self.console.print(f"{timeframe, duration}")
             else:
-                self.console.print("[bold red]Invalid choice.[/bold red]")
+                self.console.print("[bold red]Invalid choice. Returning to main menu.[/bold red]")
                 return
 
-            self.backtester.run_backtest(strategy['id'], historical_data)
-            self.console.print(f"[bold green]Backtest completed for strategy '{strategy['title']}'.[/bold green]")
+            # Run the backtest
+            self.backtester.run_backtest(strategy_id, historical_data)
+            self.console.print(f"[bold green]Backtest completed for strategy '{selected_strategy['title']}'.[/bold green]")
+
         except Exception as e:
             self.logger.error(f"Failed to run backtest: {e}")
+            self.console.print(f"[bold red]Error: {e}[/bold red]")
+
+    def remove_strategy(self):
+        """Allows the user to remove a saved strategy."""
+        try:
+            strategy = self.get_strategy_selection("Select a strategy to remove")
+            if not strategy:
+                return
+
+            strategy_id = strategy['id']
+            self.strategy_manager.remove_strategy(strategy_id)
+            self.console.print(f"[bold green]Strategy '{strategy['title']}' removed successfully.[/bold green]")
+        except Exception as e:
+            self.logger.error(f"Failed to remove strategy: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
     def view_dashboard(self):
