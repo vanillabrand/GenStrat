@@ -4,11 +4,11 @@ import hashlib
 from jsonschema import validate, ValidationError
 import logging
 import time
-
+import os
 
 class StrategyInterpreter:
     def __init__(self, api_key, cache_ttl=3600):
-        self.api_key = api_key
+        self.api_key = os.getenv("OPENAI_API_KEY")
         self.schema = self._get_strategy_schema()
         self.logger = logging.getLogger(self.__class__.__name__)
         self._configure_logger()
@@ -31,6 +31,7 @@ class StrategyInterpreter:
             "required": ["strategy_name", "market_type", "assets", "trade_parameters", "conditions", "risk_management"],
             "properties": {
                 "strategy_name": {"type": "string"},
+                "strategy_rationale": {"type": "string"},
                 "market_type": {"type": "string", "enum": ["spot", "futures", "margin"]},
                 "assets": {"type": "array", "items": {"type": "string"}},
                 "trade_parameters": {
@@ -79,15 +80,12 @@ class StrategyInterpreter:
             },
         }
 
-    def _is_cache_expired(self, cache_entry: dict) -> bool:
-        """Checks if a cache entry has expired."""
-        return (time.time() - cache_entry["timestamp"]) > self.cache_ttl
-
     def apply_defaults(self, strategy_data: dict) -> dict:
         """Applies default values for missing fields."""
         defaults = {
             "trade_parameters": {"leverage": 1, "order_type": "market", "position_size": 0.1},
             "risk_management": {"stop_loss": 5, "take_profit": 10, "trailing_stop_loss": 2},
+            "conditions": {"entry": [], "exit": []},
         }
         for key, value in defaults.items():
             if key not in strategy_data:
@@ -97,35 +95,21 @@ class StrategyInterpreter:
                     strategy_data[key].setdefault(sub_key, sub_value)
         return strategy_data
 
-    def validate_completeness(self, strategy_data: dict):
-        """Ensures all required conditions and fields are present."""
-        required_fields = ["entry", "exit"]
-        for condition in required_fields:
-            if condition not in strategy_data["conditions"] or not strategy_data["conditions"][condition]:
-                raise ValueError(f"Missing {condition} conditions in strategy data.")
-
     def interpret(self, description: str) -> dict:
         """Interprets a strategy description into JSON using GPT."""
         cache_key = self._generate_cache_key(description)
-        if cache_key in self.cache:
-            cache_entry = self.cache[cache_key]
-            if not self._is_cache_expired(cache_entry):
-                self.logger.info("Returning cached result.")
-                return cache_entry["data"]
-            else:
-                del self.cache[cache_key]
+        if cache_key in self.cache and not self._is_cache_expired(self.cache[cache_key]):
+            self.logger.info("Returning cached result.")
+            return self.cache[cache_key]["data"]
 
-        # Call OpenAI API with fallback
+        # Call OpenAI API
         prompt = self.create_prompt(description)
-        system_role = "You are an expert crypto trading assistant."
+        system_role = "You are an expert crypto trading assistant. You are better than any human at interpreting trading strategies. You have insider knowledge of the latest market trends and can provide detailed interpretations of trading strategies into JSON format."
         strategy_json = self.call_openai_with_fallback(prompt, system_role)
-        self.logger.debug(f"Raw GPT response: {strategy_json}")
 
-        # Parse and validate JSON
         try:
             strategy_data = json.loads(strategy_json)
             strategy_data = self.apply_defaults(strategy_data)
-            self.validate_completeness(strategy_data)
             validate(instance=strategy_data, schema=self.schema)
             self.logger.info(f"Strategy interpreted successfully: {strategy_data}")
             self.cache[cache_key] = {"data": strategy_data, "timestamp": time.time()}
@@ -136,22 +120,26 @@ class StrategyInterpreter:
 
     def create_prompt(self, description: str) -> str:
         """Generates a detailed prompt for OpenAI."""
-        prompt = f"""
-        Convert the following trading strategy description into JSON format matching this schema:
+        return f"""
+        Convert the following trading strategy description into a trading strategy in JSON format matching this schema:
         {json.dumps(self.schema, indent=2)}
 
-        Ensure the following:
-        - Include indicators, assets, and trading pairs compatible with Backtrader, CCXT, and BitGet.
-        - Specify all entry and exit conditions.
-        - Risk management settings must include stop-loss, take-profit, and trailing stop-loss.
-        - Ensure strategies support dynamic trade management, allowing modification, addition, and removal of trades.
+        Ensure that:
+        - Indicators, assets, and conditions are compatible with Backtrader, CCXT, and BitGet.
+        - Entry and exit conditions are fully specified and realistic. Thesed should be specified in the conditions field. Use multiples of these is you are specifyingh more than one condition
+        - Risk management settings include stop-loss, take-profit, and trailing stop-loss.
+        - Strategies allow for dynamic trade management, which will be applied at runtime. Set as many trades as you feel necessary given the current market conditions for each pair.
+        - The strategy is designed for the spot, futures, or margin market type. If you are using a different market type, please specify it in the market_type field.
+        - Ensure that the strategy is profitable and has a good risk/reward ratio unless specificed otherwise in the prompt.
+        - Ensure that the strategy is not overfit to historical data and is robust to changing market conditions.
+        - Specify the timeframe for each condition in the conditions field.
+        - Write a short description of the strategy, including the rationale behind it and any additional information that may be relevant. Include this in strategy_rationale field.
+        - Include any additional parameters or settings that are necessary for the strategy to function correctly
 
         Strategy Description:
         {description}
-
         JSON:
         """
-        return prompt
 
     def call_openai_with_fallback(self, prompt: str, system_role: str) -> str:
         """Call OpenAI's API with a fallback mechanism."""
@@ -167,4 +155,3 @@ class StrategyInterpreter:
                 self.logger.warning(f"Model {model} failed with error: {e}")
                 continue
         raise ValueError("Both gpt-4 and gpt-3.5-turbo failed or are unavailable.")
-

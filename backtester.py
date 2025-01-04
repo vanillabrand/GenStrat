@@ -2,7 +2,7 @@ import backtrader as bt
 import pandas as pd
 import asciichartpy
 import logging
-from typing import Dict
+from typing import Dict, List, Any
 import random
 
 
@@ -29,13 +29,10 @@ class Backtester:
 
         return bt.feeds.PandasData(dataname=historical_data)
 
-    def _create_bt_strategy(self, strategy: Dict):
+    def _create_bt_strategy(self, parameters: Dict, entry_conditions: List[Dict], exit_conditions: List[Dict]):
         """
         Dynamically generates a Backtrader strategy from a strategy configuration.
         """
-        parameters = strategy['data']['parameters']
-        entry_conditions = strategy['data']['entry_conditions']
-        exit_conditions = strategy['data']['exit_conditions']
 
         class GeneratedStrategy(bt.Strategy):
             params = parameters
@@ -43,47 +40,53 @@ class Backtester:
             def __init__(self):
                 self.order = None
 
+            def evaluate_conditions(self, conditions: List[Dict]) -> bool:
+                """
+                Evaluates the conditions dynamically. Replace the placeholder logic as needed.
+                """
+                # This placeholder assumes each condition is a boolean value for simplicity.
+                try:
+                    return all(cond["value"] for cond in conditions)
+                except KeyError:
+                    return False
+
             def next(self):
+                """
+                Handles the next data point in the Backtrader loop.
+                """
                 if not self.position:
-                    if eval(entry_conditions):
-                        self.buy(size=self.params.get('position_size', 1))
+                    if self.evaluate_conditions(entry_conditions):
+                        self.order = self.buy(size=self.params.get('position_size', 1))
                 else:
-                    if eval(exit_conditions):
-                        self.sell(size=self.params.get('position_size', 1))
+                    if self.evaluate_conditions(exit_conditions):
+                        self.order = self.sell(size=self.params.get('position_size', 1))
 
         return GeneratedStrategy
 
     def run_backtest(self, strategy_id: str, historical_data: pd.DataFrame):
         """
         Runs a backtest for the provided strategy using the given historical data.
-        :param strategy_id: The ID of the strategy to backtest.
-        :param historical_data: A Pandas DataFrame containing historical OHLCV data.
         """
         try:
             cerebro = bt.Cerebro()
 
             # Load historical data into Backtrader
-            data = self._convert_dataframe_to_bt_feed(historical_data)
-            cerebro.adddata(data)
+            data_feed = self._convert_dataframe_to_bt_feed(historical_data)
+            cerebro.adddata(data_feed)
 
-            # Retrieve strategy
+            # Retrieve and validate strategy
             strategy = self.strategy_manager.load_strategy(strategy_id)
             if not strategy:
                 raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
 
-            # Extract key components from strategy data
+            # Extract and validate strategy components
             data = strategy.get('data', {})
             parameters = data.get('parameters', {})
             entry_conditions = data.get('entry_conditions', [])
             exit_conditions = data.get('exit_conditions', [])
 
-            # Log warnings for missing components
-            if not parameters:
-                self.logger.warning(f"Strategy {strategy_id} has no 'parameters'.")
-            if not entry_conditions:
-                self.logger.warning(f"Strategy {strategy_id} has no 'entry_conditions'.")
-            if not exit_conditions:
-                self.logger.warning(f"Strategy {strategy_id} has no 'exit_conditions'.")
+            if not (parameters and entry_conditions and exit_conditions):
+                raise ValueError(f"Strategy {strategy_id} is missing key components for backtesting.")
 
             # Set the initial cash
             starting_cash = self.budget_manager.get_budget(strategy_id) or 100000.0
@@ -106,32 +109,32 @@ class Backtester:
             self.logger.error(f"Error during backtest: {e}")
             raise
 
-    def display_backtest_summary(self, cerebro):
+    def _plot_ascii_results(self, historical_data: pd.DataFrame):
         """
-        Displays a summary of the backtest results using ASCII charts.
+        Visualizes backtest results using ASCII.
         """
-        values = [cerebro.broker.getvalue() for _ in range(10)]  # Simulate periodic values
-        chart = asciichartpy.plot(values, {'height': 10})
-        self.logger.info("\n[ASCII Chart of Portfolio Value]\n" + chart)
+        try:
+            closes = historical_data['close'].dropna().tolist()
+            if not closes:
+                raise ValueError("No close prices available for ASCII plotting.")
+            ascii_chart = asciichartpy.plot(closes, {"height": 20, "format": "{:>8.2f}"})
+            print("Backtest Results:")
+            print(ascii_chart)
+        except Exception as e:
+            self.logger.error(f"Failed to generate ASCII plot: {e}")
+            raise
 
     def generate_synthetic_data(self, timeframe: str, duration_days: int, scenario: str = "neutral") -> pd.DataFrame:
         """
         Generates synthetic OHLCV data based on a given scenario.
-        :param timeframe: The timeframe for the synthetic data (e.g., '1T', '5T').
-        :param duration_days: The number of days for the synthetic data.
-        :param scenario: The market scenario ('bullish', 'bearish', 'neutral').
-        :return: A Pandas DataFrame with the synthetic OHLCV data.
         """
         try:
-            # Convert timeframe to valid Pandas frequency
             if timeframe.endswith('m'):
-                timeframe = timeframe.replace('m', 'min')  # e.g., '1m' -> '1T'
+                timeframe = timeframe.replace('m', 'min')  # Handle '1m' -> '1min'
 
-            # Calculate the number of periods
             freq_per_day = pd.Timedelta("1D") / pd.Timedelta(timeframe)
             num_points = int(duration_days * freq_per_day)
 
-            # Ensure the range doesn't exceed allowable timestamps
             start_date = pd.Timestamp.now()
             data = {
                 "timestamp": pd.date_range(start=start_date, periods=num_points, freq=timeframe),
@@ -142,7 +145,6 @@ class Backtester:
                 "volume": []
             }
 
-            # Generate synthetic OHLCV data
             base_price = 100.0
             for _ in range(num_points):
                 change = (
@@ -167,7 +169,6 @@ class Backtester:
             self.logger.error(f"Failed to generate synthetic data: {e}")
             raise
 
-
     def run_scenario_test(self, strategy_id: str, scenario: str, timeframe: str, duration_days: int):
         """
         Runs a backtest with synthetic data based on a specific scenario.
@@ -179,18 +180,3 @@ class Backtester:
         except Exception as e:
             self.logger.error(f"Error during scenario test: {e}")
             raise
-        
-    def _plot_ascii_results(self, historical_data: pd.DataFrame):
-        """
-        Visualizes backtest results using ASCII.
-        :param historical_data: DataFrame containing the OHLCV data.
-        """
-        try:
-            from asciichartpy import plot
-
-            closes = historical_data['close'].tolist()
-            ascii_chart = plot(closes, {"height": 20, "format": "{:>8.2f}"})
-            print("Backtest Results:")
-            print(ascii_chart)
-        except Exception as e:
-            self.logger.error(f"Failed to generate ASCII plot: {e}")

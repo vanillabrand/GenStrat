@@ -50,41 +50,34 @@ class MarketMonitor:
                 await asyncio.sleep(5)
 
     async def update_dashboard(self):
-        """
-        Updates the dashboard with active trades and their statuses.
-        """
-        self.dashboard_table.rows.clear()  # Clear the table for fresh data
+            self.dashboard_table.rows.clear()
 
-        # Get active strategies and trades
-        active_strategies = self.strategy_manager.get_active_strategies()
-        active_trades = self.trade_manager.get_active_trades()
+            # Update strategies and trades
+            active_strategies = self.strategy_manager.get_active_strategies()
+            active_trades = self.trade_manager.get_active_trades()
+            pending_trades = self.trade_manager.get_pending_trades()
 
-        # Update WebSocket subscriptions for relevant assets
-        await self.update_websocket_subscriptions(active_trades)
+            # Evaluate and transition pending trades
+            for trade in pending_trades:
+                df = await self.fetch_live_data(trade["asset"])
+                if self.evaluate_conditions(trade["entry_conditions"], df):
+                    self.trade_manager.transition_to_active(trade["trade_id"])
+                    await self.trade_executor.execute_trade(trade["trade_id"], trade["asset"], "buy", trade)
 
-        # Map strategies and trades to dashboard rows
-        for trade in active_trades:
-            strategy_name = trade.get("strategy_name", "Unknown")
-            asset = trade.get("asset", "Unknown")
-            market_type = trade.get("market_type", "spot")
-            status = trade.get("status", "Unknown")
-            filled = trade.get("filled", 0)
-            remaining = trade.get("remaining", 0)
-            pnl = self.calculate_pnl(trade)
-            risk_level = trade.get("risk_level", "Moderate")
-            last_action = status if status in ["open", "closed"] else "Pending"
-
-            self.dashboard_table.add_row(
-                strategy_name,
-                asset,
-                market_type,
-                status,
-                f"{pnl:.2f}",
-                f"{(filled / (filled + remaining) * 100) if (filled + remaining) > 0 else 0:.2f}%",
-                str(remaining),
-                risk_level,
-                last_action,
-            )
+            # Update dashboard rows
+            for trade in active_trades:
+                pnl = self.calculate_pnl(trade)
+                self.dashboard_table.add_row(
+                    trade["strategy_name"],
+                    trade["asset"],
+                    trade["market_type"],
+                    trade["status"],
+                    f"{pnl:.2f}",
+                    str(trade.get("filled", 0)),
+                    str(trade.get("remaining", 0)),
+                    trade.get("risk_level", "Moderate"),
+                    trade.get("last_action", "Unknown"),
+                )
 
     async def update_websocket_subscriptions(self, trades):
         """

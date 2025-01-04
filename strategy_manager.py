@@ -7,7 +7,7 @@ from typing import Dict, List, Union
 
 class StrategyManager:
     """
-    Manages the storage, retrieval, editing, and activation of trading strategies.
+    Manages the storage, retrieval, editing, activation, and removal of trading strategies.
     Each strategy is assigned a unique ID and a user-defined title.
     """
 
@@ -16,6 +16,7 @@ class StrategyManager:
             host=redis_host, port=redis_port, db=redis_db, decode_responses=True
         )
         self.logger = logging.getLogger(self.__class__.__name__)
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     def generate_unique_id(self) -> str:
         """Generates a unique ID for a strategy."""
@@ -44,6 +45,9 @@ class StrategyManager:
         :param strategy_data: JSON-serializable dictionary containing strategy details.
         :return: The unique ID of the saved strategy.
         """
+        if not isinstance(strategy_data, dict):
+            raise ValueError("Strategy data must be a dictionary.")
+
         strategy_id = self.generate_unique_id()
         key = f"strategy:{strategy_id}"
         strategy_record = {
@@ -148,22 +152,34 @@ class StrategyManager:
             raise
 
     def activate_strategy(self, strategy_input: Union[str, Dict]):
-        """
-        Activates a strategy for trading.
-        :param strategy_input: Strategy ID or dictionary containing the ID.
-        """
-        strategy_id = self.validate_strategy_id(strategy_input)
-        key = f"strategy:{strategy_id}"
+            strategy_id = self.validate_strategy_id(strategy_input)
+            key = f"strategy:{strategy_id}"
 
-        if not self.redis_client.exists(key):
-            raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
+            if not self.redis_client.exists(key):
+                raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
 
-        try:
-            self.redis_client.hset(key, "active", "True")
-            self.logger.info(f"Activated strategy ID '{strategy_id}'.")
-        except Exception as e:
-            self.logger.error(f"Failed to activate strategy ID '{strategy_id}': {e}")
-            raise
+            try:
+                strategy = self.redis_client.hgetall(key)
+                strategy_data = json.loads(strategy["data"])
+
+                # Record trades based on strategy details
+                for asset in strategy_data["assets"]:
+                    trade_data = {
+                        "trade_id": f"{strategy_id}:{asset}",
+                        "asset": asset,
+                        "entry_conditions": strategy_data["conditions"]["entry"],
+                        "exit_conditions": strategy_data["conditions"]["exit"],
+                        "strategy_id": strategy_id,
+                        "status": "pending"
+                    }
+                    self.trade_manager.record_trade(trade_data)
+
+                self.redis_client.hset(key, "active", "True")
+                self.logger.info(f"Activated strategy ID '{strategy_id}' and queued trades.")
+            except Exception as e:
+                self.logger.error(f"Failed to activate strategy ID '{strategy_id}': {e}")
+                raise
+
 
     def deactivate_strategy(self, strategy_input: Union[str, Dict]):
         """
@@ -193,24 +209,6 @@ class StrategyManager:
 
         if not self.redis_client.exists(key):
             self.logger.error(f"Strategy with ID '{strategy_id}' does not exist.")
-            raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
-
-        try:
-            self.redis_client.delete(key)
-            self.logger.info(f"Removed strategy ID '{strategy_id}' successfully.")
-        except Exception as e:
-            self.logger.error(f"Failed to remove strategy ID '{strategy_id}': {e}")
-            raise
-
-    def remove_strategy(self, strategy_input: Union[str, Dict]):
-        """
-        Removes a strategy from Redis.
-        :param strategy_input: Strategy ID or dictionary containing the ID.
-        """
-        strategy_id = self.validate_strategy_id(strategy_input)
-        key = f"strategy:{strategy_id}"
-
-        if not self.redis_client.exists(key):
             raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
 
         try:

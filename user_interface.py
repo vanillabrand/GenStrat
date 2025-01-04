@@ -142,7 +142,7 @@ class UserInterface:
             title = input("Enter the strategy title: ").strip()
             description = input("Enter the strategy description: ").strip()
 
-            interpreter = StrategyInterpreter(os.getenv("OPENAI_API_KEY"))
+            interpreter = StrategyInterpreter(self.api_key)
             strategy_json = interpreter.interpret(description)
 
             self.strategy_manager.save_strategy(title, description, strategy_json)

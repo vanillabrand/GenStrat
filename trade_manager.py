@@ -6,7 +6,8 @@ import json
 
 class TradeManager:
     """
-    Manages the lifecycle of trades, including recording, updating, retrieving, and closing trades.
+    Manages the lifecycle of trades, including recording, updating, retrieving, transitioning,
+    and closing trades. Supports handling both pending and active trades.
     """
 
     def __init__(self, redis_host="localhost", redis_port=6379, redis_db=0):
@@ -14,17 +15,19 @@ class TradeManager:
             host=redis_host, port=redis_port, db=redis_db, decode_responses=True
         )
         self.logger = logging.getLogger(self.__class__.__name__)
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     def record_trade(self, trade_data: Dict):
         """
-        Records a new trade in the database.
+        Records a new trade in the database and sets its status to pending.
         :param trade_data: Dictionary containing trade details.
         """
         try:
             trade_id = trade_data["trade_id"]
             key = f"trade:{trade_id}"
+            trade_data["status"] = "pending"
             self.redis_client.hmset(key, trade_data)
-            self.redis_client.sadd("active_trades", trade_id)
+            self.redis_client.sadd("pending_trades", trade_id)
             self.logger.info(f"Recorded new trade: {trade_id}")
         except Exception as e:
             self.logger.error(f"Failed to record trade: {e}")
@@ -42,6 +45,37 @@ class TradeManager:
         except Exception as e:
             self.logger.error(f"Failed to retrieve active trades: {e}")
             return []
+
+    def get_pending_trades(self) -> List[Dict]:
+        """
+        Retrieves all pending trades from the database.
+        :return: List of dictionaries representing pending trades.
+        """
+        try:
+            trade_ids = self.redis_client.smembers("pending_trades")
+            trades = [self.redis_client.hgetall(f"trade:{trade_id}") for trade_id in trade_ids]
+            self.logger.debug(f"Retrieved {len(trades)} pending trades.")
+            return trades
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve pending trades: {e}")
+            return []
+
+    def transition_to_active(self, trade_id: str):
+        """
+        Moves a trade from pending to active status.
+        :param trade_id: Unique identifier of the trade.
+        """
+        key = f"trade:{trade_id}"
+        try:
+            if self.redis_client.exists(key):
+                self.redis_client.srem("pending_trades", trade_id)
+                self.redis_client.sadd("active_trades", trade_id)
+                self.redis_client.hset(key, "status", "active")
+                self.logger.info(f"Trade {trade_id} transitioned to active.")
+            else:
+                self.logger.error(f"Trade ID '{trade_id}' does not exist.")
+        except Exception as e:
+            self.logger.error(f"Failed to transition trade {trade_id} to active: {e}")
 
     def update_trade(self, trade_id: str, updates: Dict):
         """
@@ -62,7 +96,7 @@ class TradeManager:
 
     def close_trade(self, trade_id: str):
         """
-        Marks a trade as closed and moves it out of the active trades list.
+        Marks a trade as closed and removes it from the active trades list.
         :param trade_id: Unique identifier of the trade.
         """
         try:
@@ -75,38 +109,6 @@ class TradeManager:
                 self.logger.error(f"Trade ID '{trade_id}' does not exist.")
         except Exception as e:
             self.logger.error(f"Failed to close trade ID '{trade_id}': {e}")
-
-    def get_strategy_conditions(self, strategy_name: str) -> Dict:
-        """
-        Retrieves the conditions for a specific strategy.
-        :param strategy_name: Name of the strategy.
-        :return: Dictionary containing the strategy's conditions.
-        """
-        try:
-            key = f"strategy_conditions:{strategy_name}"
-            if self.redis_client.exists(key):
-                conditions = self.redis_client.hgetall(key)
-                self.logger.debug(f"Retrieved conditions for strategy '{strategy_name}': {conditions}")
-                return json.loads(conditions.get("data", "{}"))
-            else:
-                self.logger.warning(f"No conditions found for strategy '{strategy_name}'.")
-                return {}
-        except Exception as e:
-            self.logger.error(f"Failed to retrieve conditions for strategy '{strategy_name}': {e}")
-            return {}
-
-    def record_strategy_conditions(self, strategy_name: str, conditions: Dict):
-        """
-        Records the conditions for a specific strategy.
-        :param strategy_name: Name of the strategy.
-        :param conditions: Dictionary containing the conditions to save.
-        """
-        try:
-            key = f"strategy_conditions:{strategy_name}"
-            self.redis_client.hmset(key, {"data": json.dumps(conditions)})
-            self.logger.info(f"Recorded conditions for strategy '{strategy_name}'.")
-        except Exception as e:
-            self.logger.error(f"Failed to record conditions for strategy '{strategy_name}': {e}")
 
     def get_trade_by_id(self, trade_id: str) -> Dict:
         """
@@ -125,6 +127,38 @@ class TradeManager:
                 return {}
         except Exception as e:
             self.logger.error(f"Failed to retrieve trade ID '{trade_id}': {e}")
+            return {}
+
+    def record_strategy_conditions(self, strategy_name: str, conditions: Dict):
+        """
+        Records the conditions for a specific strategy.
+        :param strategy_name: Name of the strategy.
+        :param conditions: Dictionary containing the conditions to save.
+        """
+        try:
+            key = f"strategy_conditions:{strategy_name}"
+            self.redis_client.hmset(key, {"data": json.dumps(conditions)})
+            self.logger.info(f"Recorded conditions for strategy '{strategy_name}'.")
+        except Exception as e:
+            self.logger.error(f"Failed to record conditions for strategy '{strategy_name}': {e}")
+
+    def get_strategy_conditions(self, strategy_name: str) -> Dict:
+        """
+        Retrieves the conditions for a specific strategy.
+        :param strategy_name: Name of the strategy.
+        :return: Dictionary containing the strategy's conditions.
+        """
+        try:
+            key = f"strategy_conditions:{strategy_name}"
+            if self.redis_client.exists(key):
+                conditions = self.redis_client.hgetall(key)
+                self.logger.debug(f"Retrieved conditions for strategy '{strategy_name}': {conditions}")
+                return json.loads(conditions.get("data", "{}"))
+            else:
+                self.logger.warning(f"No conditions found for strategy '{strategy_name}'.")
+                return {}
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve conditions for strategy '{strategy_name}': {e}")
             return {}
 
     def clear_closed_trades(self):
