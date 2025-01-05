@@ -8,7 +8,7 @@ import os
 
 class StrategyInterpreter:
     def __init__(self, api_key, cache_ttl=3600):
-        self.api_key = os.getenv("OPENAI_API_KEY")
+        self.api_key = "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"
         self.schema = self._get_strategy_schema()
         self.logger = logging.getLogger(self.__class__.__name__)
         self._configure_logger()
@@ -104,8 +104,9 @@ class StrategyInterpreter:
 
         # Call OpenAI API
         prompt = self.create_prompt(description)
-        system_role = "You are an expert crypto trading assistant. You are better than any human at interpreting trading strategies. You have insider knowledge of the latest market trends and can provide detailed interpretations of trading strategies into JSON format."
+        system_role = "You are an expert crypto trading assistant. Better than anyone else."
         strategy_json = self.call_openai_with_fallback(prompt, system_role)
+
 
         try:
             strategy_data = json.loads(strategy_json)
@@ -128,13 +129,15 @@ class StrategyInterpreter:
         - Indicators, assets, and conditions are compatible with Backtrader, CCXT, and BitGet.
         - Entry and exit conditions are fully specified and realistic. Thesed should be specified in the conditions field. Use multiples of these is you are specifyingh more than one condition
         - Risk management settings include stop-loss, take-profit, and trailing stop-loss.
-        - Strategies allow for dynamic trade management, which will be applied at runtime. Set as many trades as you feel necessary given the current market conditions for each pair.
-        - The strategy is designed for the spot, futures, or margin market type. If you are using a different market type, please specify it in the market_type field.
+        - Strategies allow for dynamic trade management, which will be applied at runtime. Create multiple trades based on current conditions.
+        - The strategy is designed for the spot, futures, or margin market type. Please specify it in the market_type field.
         - Ensure that the strategy is profitable and has a good risk/reward ratio unless specificed otherwise in the prompt.
         - Ensure that the strategy is not overfit to historical data and is robust to changing market conditions.
         - Specify the timeframe for each condition in the conditions field.
-        - Write a short description of the strategy, including the rationale behind it and any additional information that may be relevant. Include this in strategy_rationale field.
+        - Write a short description of the strategy, including the rationale behind it iun the strategy_rationale field.
         - Include any additional parameters or settings that are necessary for the strategy to function correctly
+        - The response contains only valid JSON, no additional explanations or text. Encode strings where necessary.
+        - Conditions include all relevant trading pairs, up to 30 pairs for futures and 20 pairs for spot and margin.
 
         Strategy Description:
         {description}

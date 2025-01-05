@@ -1,5 +1,6 @@
 import os
 import logging
+import asyncio
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -7,11 +8,13 @@ from rich.layout import Layout
 from strategy_manager import StrategyManager
 from risk_manager import RiskManager
 from budget_manager import BudgetManager
+from trade_manager import TradeManager
 from performance_manager import PerformanceManager
 from backtester import Backtester
 from dashboard import Dashboard
 from strategy_interpreter import StrategyInterpreter
-
+from market_monitor import MarketMonitor
+from trade_executor import TradeExecutor    
 
 class UserInterface:
     """
@@ -25,12 +28,19 @@ class UserInterface:
         self.exchange = exchange
 
         # Initialize managers and the dashboard
-        self.strategy_manager = StrategyManager()
         self.risk_manager = RiskManager()
         self.budget_manager = BudgetManager()
         self.performance_manager = PerformanceManager()
+        self.trade_manager = TradeManager(self.exchange, self.budget_manager, self.risk_manager)
+        self.strategy_manager = StrategyManager(trade_manager=self.trade_manager)
         self.backtester = Backtester(self.strategy_manager, self.budget_manager)
+        self.trade_executor = TradeExecutor(self.exchange, self.trade_manager, self.budget_manager)
         self.dashboard = Dashboard(exchange, self.strategy_manager, self.performance_manager)
+        self.market_monitor = MarketMonitor(exchange, self.strategy_manager, self.trade_manager, self.trade_executor)
+
+        # Link dependencies
+        self.strategy_manager.set_monitoring(self.market_monitor)
+        self.market_monitor.dashboard = self.dashboard
 
         self.configure_layout()
 
@@ -52,16 +62,16 @@ class UserInterface:
         """Clears the terminal screen."""
         os.system("cls" if os.name == "nt" else "clear")
 
-    def main(self):
-        """Main loop for the user interface."""
-        while True:
-            try:
-                self.clear_screen()
-                self.console.print(self.create_main_menu())
-                choice = input("\nSelect an option: ")
-                self.handle_menu_choice(choice)
-            except KeyboardInterrupt:
-                self.exit_program()
+    async def main(self):
+            """Main loop for the user interface."""
+            while True:
+                try:
+                    self.clear_screen()
+                    self.console.print(self.create_main_menu())
+                    choice = input("\nSelect an option: ")
+                    await self.handle_menu_choice(choice)
+                except KeyboardInterrupt:
+                    self.exit_program()
 
     def create_main_menu(self):
         """Creates the main menu as a rich table."""
@@ -89,7 +99,8 @@ class UserInterface:
 
         return Panel(table, title="Main Menu", title_align="left")
 
-    def handle_menu_choice(self, choice):
+
+    async def handle_menu_choice(self, choice):
         """Handles user input for the main menu."""
         menu_options = {
             "1": self.create_new_strategy,
@@ -108,11 +119,15 @@ class UserInterface:
 
         action = menu_options.get(choice)
         if action:
-            action()
+            if asyncio.iscoroutinefunction(action):
+                await action()
+            else:
+                action()
             input("Press Enter to return to the main menu...")  # Pause for user to view results
         else:
             self.console.print("[bold red]Invalid choice. Please try again.[/bold red]")
             input("Press Enter to continue...")
+
 
     def get_strategy_selection(self, prompt: str):
         """
@@ -136,13 +151,13 @@ class UserInterface:
             self.console.print("[bold red]Invalid input. Please enter a number.[/bold red]")
             return None
 
-    def create_new_strategy(self):
+    async def create_new_strategy(self):
         """Prompts the user to create a new strategy."""
         try:
             title = input("Enter the strategy title: ").strip()
             description = input("Enter the strategy description: ").strip()
 
-            interpreter = StrategyInterpreter(self.api_key)
+            interpreter = StrategyInterpreter(os.getenv("OPENAI_API_KEY"))
             strategy_json = interpreter.interpret(description)
 
             self.strategy_manager.save_strategy(title, description, strategy_json)
@@ -261,7 +276,7 @@ class UserInterface:
             self.logger.error(f"Failed to assign budget: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
-    def activate_strategy(self):
+    async def activate_strategy(self):
         """Activates a saved strategy for monitoring and execution."""
         try:
             strategy = self.get_strategy_selection("Select a strategy to activate")
@@ -269,25 +284,26 @@ class UserInterface:
                 return
 
             strategy_id = strategy['id']
-            self.strategy_manager.activate_strategy(strategy_id)
+            await self.strategy_manager.activate_strategy(strategy_id)
             self.console.print(f"[bold green]Strategy '{strategy['title']}' activated.[/bold green]")
         except Exception as e:
             self.logger.error(f"Failed to activate strategy: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
-    def deactivate_strategy(self):
-        """Allows the user to deactivate a saved strategy."""
-        try:
-            strategy = self.get_strategy_selection("Select a strategy to deactivate")
-            if not strategy:
-                return
+    async def deactivate_strategy(self):
+            """Deactivates a saved strategy."""
+            try:
+                strategy = self.get_strategy_selection("Select a strategy to deactivate")
+                if not strategy:
+                    return
 
-            strategy_id = strategy['id']
-            self.strategy_manager.deactivate_strategy(strategy_id)
-            self.console.print(f"[bold green]Strategy '{strategy['title']}' deactivated successfully.[/bold green]")
-        except Exception as e:
-            self.logger.error(f"Failed to deactivate strategy: {e}")
-            self.console.print(f"[bold red]Error: {e}[/bold red]")
+                strategy_id = strategy['id']
+                await self.strategy_manager.deactivate_strategy(strategy_id)
+                self.console.print(f"[bold green]Strategy '{strategy['title']}' deactivated successfully.[/bold green]")
+            except Exception as e:
+                self.logger.error(f"Failed to deactivate strategy: {e}")
+                self.console.print(f"[bold red]Error: {e}[/bold red]")
+
 
     def view_performance_metrics(self):
         """Displays performance metrics for a strategy."""
@@ -377,16 +393,22 @@ class UserInterface:
             self.logger.error(f"Failed to remove strategy: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
-    def view_dashboard(self):
+    async def view_dashboard(self):
         """Displays the live trading dashboard."""
         try:
             self.console.print("[bold cyan]Launching the live trading dashboard...[/bold cyan]")
-            self.dashboard.run()
+            await self.dashboard.run()  # Ensure the coroutine is awaited
         except Exception as e:
             self.logger.error(f"Failed to display dashboard: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
+        def exit_program(self):
+            """Exits the program."""
+            self.console.print("[bold cyan]Exiting the program... Goodbye![/bold cyan]")
+            exit(0)
 
-    def exit_program(self):
-        """Exits the program."""
-        self.console.print("[bold cyan]Exiting the program... Goodbye![/bold cyan]")
-        exit(0)
+            
+    async def exit_program(self):
+            """Exits the program."""
+            self.console.print("[bold cyan]Exiting the program... Goodbye![/bold cyan]")
+            await asyncio.sleep(1)
+            exit(0)

@@ -3,6 +3,7 @@ import asyncio
 
 
 class TradeExecutor:
+    
     """
     Executes trades based on strategy conditions, manages risk parameters, and handles post-trade actions.
     """
@@ -78,7 +79,7 @@ class TradeExecutor:
             # Manage risk parameters
             if stop_loss or take_profit or trailing_stop:
                 await self.set_risk_management_orders(
-                    asset, side, amount, price, stop_loss, take_profit, trailing_stop, market_type
+                    asset, side, amount, price, stop_loss, take_profit, trailing_stop, market_type, strategy_name
                 )
 
         except Exception as e:
@@ -88,11 +89,15 @@ class TradeExecutor:
         """
         Calculates the trade amount based on available budget and position size.
         """
-        max_amount = budget / price
-        amount = min(position_size, max_amount)
-        return amount
+        try:
+            max_amount = budget / price
+            amount = min(position_size, max_amount)
+            return amount
+        except Exception as e:
+            self.logger.error(f"Error calculating trade amount: {e}")
+            raise
 
-    async def set_risk_management_orders(self, asset, side, amount, entry_price, stop_loss, take_profit, trailing_stop, market_type):
+    async def set_risk_management_orders(self, asset, side, amount, entry_price, stop_loss, take_profit, trailing_stop, market_type, strategy_name):
         """
         Sets stop-loss, take-profit, and trailing stop orders for a trade.
         :param asset: Asset being traded.
@@ -103,6 +108,7 @@ class TradeExecutor:
         :param take_profit: Take-profit percentage.
         :param trailing_stop: Trailing stop percentage.
         :param market_type: Type of market (e.g., 'spot', 'futures').
+        :param strategy_name: Name of the strategy initiating the trade.
         """
         try:
             orders = []
@@ -145,7 +151,7 @@ class TradeExecutor:
 
             for order in orders:
                 self.trade_manager.record_trade({
-                    "strategy_name": trade_record["strategy_name"],
+                    "strategy_name": strategy_name,
                     "asset": asset,
                     "side": order["side"],
                     "amount": amount,
