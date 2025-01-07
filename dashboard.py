@@ -13,11 +13,12 @@ class Dashboard:
     Dashboard for displaying live updates on trades, strategies, and market details.
     """
 
-    def __init__(self, exchange, strategy_manager, trade_manager, performance_manager=None):
+    def __init__(self, exchange, strategy_manager, trade_manager, market_monitor, performance_manager=None):
         self.console = Console()
         self.exchange = exchange
         self.strategy_manager = strategy_manager
         self.trade_manager = trade_manager
+        self.market_monitor = market_monitor
         self.performance_manager = performance_manager
         self.logger = logging.getLogger(self.__class__.__name__)
 
@@ -55,14 +56,18 @@ class Dashboard:
         table.add_column("Volume", justify="right", style="cyan")
 
         try:
-            market_data = self.exchange.fetch_tickers()
-            for asset, data in market_data.items():
-                table.add_row(
-                    asset,
-                    f"{data['last']:.2f}",
-                    f"{data['percentage']:.2f}%",
-                    f"{data['volume']:,}",
-                )
+            market_data = self.market_monitor.get_current_market_data()
+            if not market_data:
+                self.logger.warning("No market data available.")
+                table.add_row("N/A", "N/A", "N/A", "N/A")
+            else:
+                for asset, data in market_data.items():
+                    table.add_row(
+                        asset,
+                        f"{data['price']:.2f}" if data.get('price') else "N/A",
+                        f"{data['change']:.2f}%" if data.get('change') else "N/A",
+                        f"{data['volume']:,}" if data.get('volume') else "N/A",
+                    )
         except Exception as e:
             self.logger.error(f"Failed to fetch market data: {e}")
             table.add_row("N/A", "N/A", "N/A", "N/A")
@@ -73,26 +78,32 @@ class Dashboard:
         """Generates a panel displaying live trade details."""
         table = Table(title="Active Trades", style="yellow")
         table.add_column("Trade ID", justify="center", style="white")
-        table.add_column("Asset", justify="center", style="magenta")
+        table.add_column("Strategy", justify="center", style="magenta")
+        table.add_column("Asset", justify="center", style="cyan")
         table.add_column("Side", justify="center", style="green")
         table.add_column("Status", justify="center", style="blue")
         table.add_column("PnL", justify="right", style="red")
 
         try:
             trades = self.trade_manager.get_active_trades()
-            for trade in trades:
-                table.add_row(
-                    trade['trade_id'],
-                    trade['asset'],
-                    trade['side'],
-                    trade['status'],
-                    f"{trade.get('pnl', 0):.2f} USDT"
-                )
+            if not trades:
+                self.logger.warning("No active trades available.")
+                table.add_row("N/A", "N/A", "N/A", "N/A", "N/A", "N/A")
+            else:
+                for trade in trades:
+                    table.add_row(
+                        trade['trade_id'],
+                        trade['strategy_name'],
+                        trade['asset'],
+                        trade['side'],
+                        trade['status'],
+                        f"{trade.get('pnl', 0):.2f} USDT"
+                    )
         except Exception as e:
-            self.logger.error(f"Failed to fetch trades: {e}")
-            table.add_row("N/A", "N/A", "N/A", "N/A")
+            self.logger.error(f"Failed to fetch trade data: {e}")
+            table.add_row("N/A", "N/A", "N/A", "N/A", "N/A", "N/A")
 
-        return Panel(table, title="Trades")
+        return Panel(table, title="Active Trades")
 
     def generate_strategies_panel(self):
         """Generates a panel displaying active strategies and their details."""
@@ -104,13 +115,17 @@ class Dashboard:
 
         try:
             strategies = self.strategy_manager.list_strategies()
-            for strategy in strategies:
-                table.add_row(
-                    strategy['id'],
-                    strategy['title'],
-                    "Yes" if strategy['active'] else "No",
-                    ", ".join(strategy['data']['assets']),
-                )
+            if not strategies:
+                self.logger.warning("No active strategies available.")
+                table.add_row("N/A", "N/A", "N/A", "N/A")
+            else:
+                for strategy in strategies:
+                    table.add_row(
+                        strategy['id'],
+                        strategy['title'],
+                        "Yes" if strategy['active'] else "No",
+                        ", ".join(strategy['data'].get('assets', [])),
+                    )
         except Exception as e:
             self.logger.error(f"Failed to fetch strategies: {e}")
             table.add_row("N/A", "N/A", "N/A", "N/A")
@@ -122,28 +137,28 @@ class Dashboard:
         with Live(self.layout, refresh_per_second=1, console=self.console):
             while True:
                 try:
-                    self.layout["body"]["strategies"].update(self.generate_strategies_panel())
-                    self.layout["body"]["trades"].update(self.generate_trades_panel())
-                    self.layout["body"]["market"].update(self.generate_market_panel())
+                    strategies_panel = self.generate_strategies_panel()
+                    trades_panel = self.generate_trades_panel()
+                    market_panel = self.generate_market_panel()
+
+                    # Safely update panels
+                    if strategies_panel:
+                        self.layout["body"]["strategies"].update(strategies_panel)
+                    if trades_panel:
+                        self.layout["body"]["trades"].update(trades_panel)
+                    if market_panel:
+                        self.layout["body"]["market"].update(market_panel)
                 except Exception as e:
                     self.logger.error(f"Dashboard update error: {e}")
-
                 await asyncio.sleep(5)  # Refresh every 5 seconds
 
-    async def run_async(self):
-        """Runs the dashboard as an async function."""
-        await self.update_dashboard()
-
-    def run(self):
-        """Runs the dashboard, handling already running event loops gracefully."""
+    async def run(self):
+        """Runs the dashboard in a loop."""
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                self.console.print("[bold cyan]Dashboard running in existing event loop.[/bold cyan]")
-                loop.create_task(self.run_async())
-            else:
-                asyncio.run(self.run_async())
+            await self.update_dashboard()
+        except asyncio.CancelledError:
+            self.logger.info("Dashboard loop cancelled.")
         except KeyboardInterrupt:
             self.console.print("\n[bold red]Dashboard stopped.[/bold red]")
         except Exception as e:
-            self.logger.error(f"Unexpected error while running dashboard: {e}")
+            self.logger.error(f"Unexpected error in dashboard loop: {e}")

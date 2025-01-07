@@ -35,8 +35,9 @@ class UserInterface:
         self.strategy_manager = StrategyManager(trade_manager=self.trade_manager)
         self.backtester = Backtester(self.strategy_manager, self.budget_manager)
         self.trade_executor = TradeExecutor(self.exchange, self.trade_manager, self.budget_manager)
-        self.dashboard = Dashboard(exchange, self.strategy_manager, self.performance_manager)
+        
         self.market_monitor = MarketMonitor(exchange, self.strategy_manager, self.trade_manager, self.trade_executor)
+        self.dashboard = Dashboard(exchange, self.strategy_manager, self.performance_manager, self.market_monitor)
 
         # Link dependencies
         self.strategy_manager.set_monitoring(self.market_monitor)

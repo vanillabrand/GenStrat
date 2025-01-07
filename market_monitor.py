@@ -132,29 +132,25 @@ class MarketMonitor:
                 self.logger.error(f"Failed to subscribe to WebSocket for asset {asset}: {e}")
 
     async def monitor_strategy(self, strategy):
-        """
-        Monitors and evaluates a specific strategy across its assets.
-        """
+        """Evaluates a strategy for entry conditions."""
         strategy_name = strategy["title"]
         strategy_data = strategy["data"]
 
         for asset in strategy_data["assets"]:
             try:
-                df = await self.fetch_live_data(asset)  # Ensure this is awaited only if async
-                if df.empty:
-                    self.logger.warning(f"No data available for asset '{asset}'. Skipping.")
-                    continue
-
+                df = await self.fetch_live_data(asset)
                 entry_signal = self.evaluate_conditions(strategy_data["conditions"]["entry"], df)
-                exit_signal = self.evaluate_conditions(strategy_data["conditions"]["exit"], df)
 
                 if entry_signal:
-                    await self.trade_executor.execute_trade(strategy_name, asset, "buy", strategy_data)
-                elif exit_signal:
-                    await self.trade_executor.execute_trade(strategy_name, asset, "sell", strategy_data)
+                    self.logger.info(f"Entry signal detected for {asset}.")
+                    trade = await self.trade_executor.execute_trade(
+                        strategy_name, asset, "buy", strategy_data
+                    )
+                    self.trade_manager.add_trade(trade)
             except Exception as e:
-                self.logger.error(f"MarketMonitor: Error monitoring '{strategy_name}' for asset '{asset}' - {e}")
+                self.logger.error(f"Error monitoring '{strategy_name}' for asset '{asset}': {e}")
 
+            
     async def fetch_live_data(self, asset: str) -> pd.DataFrame:
         """
         Fetches live market data via WebSocket or falls back to REST API.

@@ -30,6 +30,8 @@ class Config:
     LOGGING_FORMAT = '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
     LOGGING_FILE = 'trading_bot.log'
 
+    
+
     logging.basicConfig(
         level=LOGGING_LEVEL,
         format=LOGGING_FORMAT,  
