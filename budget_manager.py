@@ -2,17 +2,22 @@ import redis
 import threading
 import logging
 from typing import Dict
+import asyncio
 
 
 class BudgetManager:
     """
     Manages budgets allocated to different strategies with Redis integration.
+    Ensures dynamic allocation and balance validation against exchange funds.
     """
 
-    def __init__(self, redis_host='localhost', redis_port=6379, redis_db=0):
-        self.redis_client = redis.StrictRedis(host=redis_host, port=redis_port, db=redis_db, decode_responses=True)
+    def __init__(self, redis_host='localhost', redis_port=6379, redis_db=0, exchange=None):
+        self.redis_client = redis.StrictRedis(
+            host=redis_host, port=redis_port, db=redis_db, decode_responses=True
+        )
         self.lock = threading.Lock()
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.exchange = exchange  # Integration with exchange for balance validation
 
     def set_budget(self, strategy_name: str, amount: float):
         """
@@ -53,8 +58,17 @@ class BudgetManager:
         if new_amount < 0:
             self.logger.error("Budget amount cannot be negative.")
             return
+
         with self.lock:
             try:
+                # Cap budget at available exchange balance
+                available_balance = self.get_exchange_balance(strategy_name)
+                if new_amount > available_balance:
+                    new_amount = available_balance
+                    self.logger.warning(
+                        f"Capped budget for '{strategy_name}' at {new_amount} due to exchange balance limit."
+                    )
+                
                 if self.redis_client.hexists("budgets", strategy_name):
                     self.redis_client.hset("budgets", strategy_name, new_amount)
                     self.logger.info(f"Budget for '{strategy_name}' updated to {new_amount}.")
@@ -110,6 +124,38 @@ class BudgetManager:
                 for strategy_name, weight in strategy_weights.items():
                     allocated_budget = (weight / total_weight) * total_budget
                     self.redis_client.hset("budgets", strategy_name, allocated_budget)
-                    self.logger.info(f"Allocated {allocated_budget} to strategy '{strategy_name}' based on weight {weight}.")
+                    self.logger.info(
+                        f"Allocated {allocated_budget} to strategy '{strategy_name}' based on weight {weight}."
+                    )
             except Exception as e:
                 self.logger.error(f"Failed to dynamically allocate budget: {e}")
+
+    def return_budget(self, strategy_name: str, amount: float):
+        """
+        Returns unspent budget back to the strategy's available funds.
+        """
+        with self.lock:
+            try:
+                current_budget = self.get_budget(strategy_name)
+                new_budget = current_budget + amount
+                self.redis_client.hset("budgets", strategy_name, new_budget)
+                self.logger.info(
+                    f"Returned {amount:.2f} USDT to strategy '{strategy_name}'. New budget: {new_budget:.2f}"
+                )
+            except Exception as e:
+                self.logger.error(f"Failed to return budget for '{strategy_name}': {e}")
+
+    def get_exchange_balance(self, asset: str) -> float:
+        """
+        Retrieves the available balance of an asset from the exchange.
+        """
+        try:
+            if self.exchange:
+                balances = asyncio.run(self.exchange.fetch_balance())
+                return balances.get(asset, {}).get('free', 0.0)
+            else:
+                self.logger.warning("Exchange instance not set. Returning 0 balance.")
+                return 0.0
+        except Exception as e:
+            self.logger.error(f"Failed to fetch balance for '{asset}': {e}")
+            return 0.0

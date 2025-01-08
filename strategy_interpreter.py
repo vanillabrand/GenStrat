@@ -131,7 +131,7 @@ class StrategyInterpreter:
         - Risk management settings include stop-loss, take-profit, and trailing stop-loss.
         - Strategies allow for dynamic trade management, which will be applied at runtime. Create multiple trades based on current conditions.
         - The strategy is designed for the spot, futures, or margin market type. Please specify it in the market_type field.
-        - Ensure that the strategy is profitable and has a good risk/reward ratio unless specificed otherwise in the prompt.
+        - Ensure that the strategy is profitable and has an extremely high risk/reward ratio unless specificed otherwise in the prompt.
         - Ensure that the strategy is not overfit to historical data and is robust to changing market conditions.
         - Specify the timeframe for each condition in the conditions field.
         - Write a short description of the strategy, including the rationale behind it iun the strategy_rationale field.

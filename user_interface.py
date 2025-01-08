@@ -21,22 +21,21 @@ class UserInterface:
     Handles terminal-based interaction for managing trading strategies, budgets, risk levels, and performance metrics.
     """
 
-    def __init__(self, exchange):
-        self.logger = logging.getLogger(self.__class__.__name__)
+    def __init__(self, exchange, logger):
+        self.logger = logger
         self.console = Console()
         self.layout = Layout()
         self.exchange = exchange
 
-        # Initialize managers and the dashboard
+        # Initialize managers and the dashboardß
         self.risk_manager = RiskManager()
         self.budget_manager = BudgetManager()
         self.performance_manager = PerformanceManager()
         self.trade_manager = TradeManager(self.exchange, self.budget_manager, self.risk_manager)
         self.strategy_manager = StrategyManager(trade_manager=self.trade_manager)
         self.backtester = Backtester(self.strategy_manager, self.budget_manager)
-        self.trade_executor = TradeExecutor(self.exchange, self.trade_manager, self.budget_manager)
-        
-        self.market_monitor = MarketMonitor(exchange, self.strategy_manager, self.trade_manager, self.trade_executor)
+        self.trade_executor = TradeExecutor(self.exchange, self.trade_manager, self.budget_manager)       
+        self.market_monitor = MarketMonitor(exchange, self.strategy_manager, self.trade_manager, self.trade_executor, self.budget_manager)
         self.dashboard = Dashboard(exchange, self.strategy_manager, self.performance_manager, self.market_monitor)
 
         # Link dependencies

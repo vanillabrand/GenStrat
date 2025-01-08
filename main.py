@@ -2,6 +2,7 @@ import ccxt
 from user_interface import UserInterface
 import os
 import asyncio
+import logging
 
 async def async_main():
     # Initialize the exchange object (e.g., Bitget)
@@ -11,8 +12,21 @@ async def async_main():
         "password": os.getenv("BITGET_API_PASSPHRASE")  # If applicable
     })
 
+    LOGGING_FORMAT = '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
+    LOGGING_FILE = 'trading_bot.log'
+    LOGGING_LEVEL = logging.DEBUG
+
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        handlers=[
+            logging.FileHandler('trading_bot.log'),
+            logging.StreamHandler()
+        ]
+    )
+   
     # Pass the exchange to UserInterface
-    ui = UserInterface(exchange)
+    ui = UserInterface(exchange, logging)
     await ui.main()  # Await the main loop of UserInterface
 
 def main():
