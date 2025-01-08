@@ -7,13 +7,16 @@ import ta
 import pandas as pd
 
 class TradeGenerator:
-    def __init__(self, strategy, redis_client):
+    def __init__(self, strategy, redis_client, exchange):
+
         self.strategy = strategy
         self.redis_client = redis_client
+        self.exchange = exchange
         self.active_trades = []
         self.volatility_threshold = 0.8  # Dynamic threshold for volatility detection
     
     def parse_strategy(self):
+
         """Parse strategy to extract trade parameters."""
         strategy_data = json.loads(self.strategy.get("data", "{}"))
         self.trade_params = strategy_data.get("trade_parameters", {})
@@ -21,6 +24,7 @@ class TradeGenerator:
         self.assets = strategy_data.get("assets", [])
 
     def generate_trades(self):
+
         """Generate trades, applying anti-whale and anti-bot logic."""
         trades = []
         for asset in self.assets:
@@ -46,6 +50,7 @@ class TradeGenerator:
         return trades
 
     def detect_whale_activity(self, asset):
+
         """Detect abnormal market activity through order book data."""
         order_book = exchange.fetch_order_book(asset)
         asks, bids = order_book['asks'], order_book['bids']
@@ -58,6 +63,7 @@ class TradeGenerator:
         return depth_ratio > 1.5  # Whale activity threshold
 
     def store_trades(self, trades):
+
         """Store trades in Redis."""
         for trade in trades:
             key = f"trade:{trade['asset']}:{datetime.now().timestamp()}"
@@ -65,6 +71,7 @@ class TradeGenerator:
             self.active_trades.append(trade)
         
     def recover_trades(self):
+        
         """Recover trades during crash recovery."""
         keys = self.redis_client.keys("trade:*")
         self.active_trades = [json.loads(self.redis_client.get(k)) for k in keys]
