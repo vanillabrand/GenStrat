@@ -104,14 +104,13 @@ class TradeManager:
 
     ### --- Trade Retrieval and Monitoring ---
 
-    def get_active_trades(self) -> List[Dict]:
+    def get_active_trades(self):
         """
         Retrieves all active trades from the database.
         """
         try:
             trade_ids = self.redis_client.smembers("active_trades")
             trades = [self.redis_client.hgetall(f"trade:{trade_id}") for trade_id in trade_ids]
-            self.logger.debug(f"Retrieved {len(trades)} active trades.")
             return trades
         except Exception as e:
             self.logger.error(f"Failed to retrieve active trades: {e}")

@@ -93,59 +93,84 @@ class TradeExecutor:
                 await self.fallback_to_market(order_id, asset, side, remaining, market_type)
                 break
 
-    async def execute_trade(self, strategy_name, asset, side, strategy_data, market_type="spot"):
+    async def get_current_market_data(self, assets):
         """
-        Executes trades based on JSON strategy data with strict adherence to entry conditions.
+        Fetches current market data for multiple assets in a batch request.
+        :param assets: List of asset symbols (e.g., ["BTC/USDT", "ETH/USDT"]).
+        :return: Dictionary with asset symbols as keys and their market data as values.
         """
         try:
-            budget = self.budget_manager.get_budget(strategy_name)
-            if budget <= 0:
-                self.logger.error(f"No budget for strategy '{strategy_name}'.")
+            # Use fetch_tickers to batch fetch market data
+            market_data = await self.exchange.fetch_tickers(assets)
+            return {
+                symbol: {
+                    "price": data["last"],
+                    "high": data["high"],
+                    "low": data["low"],
+                    "volume": data["baseVolume"],
+                    "change_24h": data.get("percentage", 0),
+                }
+                for symbol, data in market_data.items()
+            }
+        except Exception as e:
+            self.logger.error(f"Error fetching market data for assets {assets}: {e}")
+            return {}
+
+    async def execute_trade(self, strategy_name, trade_details):
+        """
+        Executes a trade with balance validation.
+        :param strategy_name: Name of the strategy initiating the trade.
+        :param trade_details: Details of the trade to execute.
+        """
+        try:
+            # Fetch wallet balance
+            market_type = trade_details.get("market_type", "spot")
+            wallet_balance = await self.fetch_wallet_balance(market_type)
+
+            # Ensure sufficient balance for the trade
+            asset = trade_details["asset"]
+            required_amount = trade_details["amount"] * trade_details["price"]
+
+            if asset not in wallet_balance or wallet_balance[asset] < required_amount:
+                self.logger.warning(
+                    f"Insufficient balance in {market_type} wallet for {asset}. "
+                    f"Required: {required_amount:.2f}, Available: {wallet_balance.get(asset, 0):.2f}"
+                )
                 return
 
-            # Extract parameters
-            trade_params = strategy_data.get("trade_parameters", {})
-            position_size = trade_params.get("position_size", 1)
-            order_type = trade_params.get("order_type", "market")
-            risk_params = strategy_data.get("risk_management", {})
-
-            # Price and amount calculation
-            ticker = await self.exchange.fetch_ticker(asset, params={"type": market_type})
-            price = ticker["last"]
-            amount = self.calculate_amount(budget, price, position_size)
-
-            # Place trade
+            # Proceed with trade execution
             order = await self.exchange.create_order(
                 symbol=asset,
-                type=order_type,
-                side=side,
-                amount=amount,
-                price=None if order_type == "market" else price,
-                params={"type": market_type}
+                type="market",
+                side=trade_details["side"],
+                amount=trade_details["amount"],
+                price=None  # Market orders do not specify a price
             )
 
-            self.logger.info(f"{side.capitalize()} trade for {amount} {asset} at {price}.")
-
-            trade_record = {
+            # Record the trade
+            self.trade_manager.record_trade({
+                **trade_details,
                 "strategy_name": strategy_name,
-                "asset": asset,
-                "side": side,
-                "amount": amount,
-                "price": price,
                 "order_id": order["id"],
                 "status": "open",
-                "market_type": market_type,
-                "timestamp": order["timestamp"],
-            }
+            })
 
-            # Record trade and deduct budget
-            self.trade_manager.record_trade(trade_record)
-            self.budget_manager.update_budget(strategy_name, budget - (amount * price))
-
+            self.logger.info(f"Trade executed: {order}")
         except Exception as e:
-            self.logger.error(f"Trade execution error for strategy '{strategy_name}': {e}")
+            self.logger.error(f"Error executing trade: {e}")
 
-
+    async def fetch_wallet_balance(self, market_type: str):
+        """
+        Fetches the wallet balance for the specified market type.
+        :param market_type: The market type (e.g., 'spot', 'futures', 'margin').
+        :return: A dictionary of available balances for each asset.
+        """
+        try:
+            balance = await self.exchange.fetch_balance(params={"type": market_type})
+            return balance["free"]  # 'free' represents available balance
+        except Exception as e:
+            self.logger.error(f"Error fetching wallet balance for {market_type}: {e}")
+            return {}
 
     async def fallback_to_market(self, order_id, asset, side, remaining, market_type):
         """

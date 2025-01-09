@@ -48,31 +48,33 @@ class Dashboard:
         self.layout["footer"].update(Panel(footer_text, style="bold green"))
 
     def generate_market_panel(self):
-        """Generates a panel displaying live market information."""
-        table = Table(title="Market Overview", style="blue")
-        table.add_column("Asset", justify="center", style="magenta")
-        table.add_column("Price", justify="right", style="white")
-        table.add_column("24h Change", justify="right", style="green")
-        table.add_column("Volume", justify="right", style="cyan")
+        """
+        Generates a panel displaying live market data.
+        """
+        table = Table(title="Market Overview")
+        table.add_column("Asset", justify="left")
+        table.add_column("Price", justify="right")
+        table.add_column("24h Change", justify="right")
 
         try:
-            market_data = self.market_monitor.get_current_market_data()
-            if not market_data:
-                self.logger.warning("No market data available.")
-                table.add_row("N/A", "N/A", "N/A", "N/A")
-            else:
-                for asset, data in market_data.items():
-                    table.add_row(
-                        asset,
-                        f"{data['price']:.2f}" if data.get('price') else "N/A",
-                        f"{data['change']:.2f}%" if data.get('change') else "N/A",
-                        f"{data['volume']:,}" if data.get('volume') else "N/A",
-                    )
+            assets = self.assets  # Assume this contains the list of assets to monitor
+            market_data = self.market_monitor.get_current_market_data(assets)  # Batch fetch
+
+            for asset in assets:
+                if asset not in market_data:
+                    self.logger.error(f"Failed to fetch market data for {asset}.")
+                    continue
+
+                data = market_data[asset]
+                table.add_row(
+                    asset,
+                    f"{data.get('price', 'N/A'):.2f}",
+                    f"{data.get('change_24h', 'N/A')}%",
+                )
         except Exception as e:
             self.logger.error(f"Failed to fetch market data: {e}")
-            table.add_row("N/A", "N/A", "N/A", "N/A")
 
-        return Panel(table, title="Market Overview")
+        return Panel(table, title="Market")
 
     def generate_trades_panel(self):
         """Generates a panel displaying live trade details."""
@@ -133,24 +135,27 @@ class Dashboard:
         return Panel(table, title="Active Strategies")
 
     async def update_dashboard(self):
-        """Continuously fetches and updates live data on the dashboard."""
-        with Live(self.layout, refresh_per_second=1, console=self.console):
-            while True:
-                try:
-                    strategies_panel = self.generate_strategies_panel()
-                    trades_panel = self.generate_trades_panel()
-                    market_panel = self.generate_market_panel()
+        """
+        Continuously fetches and updates live data on the dashboard in batches.
+        """
+        try:
+            # Fetch active trades to extract assets
+            active_trades = self.trade_manager.get_active_trades()
+            assets = [trade["asset"] for trade in active_trades]
 
-                    # Safely update panels
-                    if strategies_panel:
-                        self.layout["body"]["strategies"].update(strategies_panel)
-                    if trades_panel:
-                        self.layout["body"]["trades"].update(trades_panel)
-                    if market_panel:
-                        self.layout["body"]["market"].update(market_panel)
-                except Exception as e:
-                    self.logger.error(f"Dashboard update error: {e}")
-                await asyncio.sleep(5)  # Refresh every 5 seconds
+            # Batch fetch market data for all active assets
+            market_data = await self.get_current_market_data(assets)
+
+            for trade in active_trades:
+                asset = trade["asset"]
+                if asset not in market_data:
+                    self.logger.error(f"No market data available for {asset}. Skipping.")
+                    continue
+
+                # Update dashboard with market data
+                self.logger.info(f"Market data for {asset}: {market_data[asset]}")
+        except Exception as e:
+            self.logger.error(f"Error updating dashboard: {e}")
 
     async def run(self):
         """Runs the dashboard in a loop."""

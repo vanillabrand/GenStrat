@@ -53,22 +53,46 @@ class MarketMonitor:
         asyncio.create_task(self.monitor_strategy(strategy))
 
     async def monitor_strategy(self, strategy):
-        strategy_name = strategy["title"]
-        strategy_data = strategy["data"]
+        """
+        Monitors entry and exit conditions for a strategy and executes or closes trades accordingly.
+        """
+        try:
+            strategy_data = self.strategy_manager.get_strategy_data(strategy["id"])
+            assets = strategy_data["assets"]  # List of assets for this strategy
 
-        for asset in strategy_data["assets"]:
-            try:
-                df = await self.fetch_live_data(asset)
-                entry_signal = self.evaluate_conditions(strategy_data["conditions"]["entry"], df)
-                exit_signal = self.evaluate_conditions(strategy_data["conditions"]["exit"], df)
+            # Batch fetch market data for all assets
+            market_data = await self.get_current_market_data(assets)
 
-                if entry_signal:
-                    await self.trade_executor.execute_trade(strategy_name, asset, "buy", strategy_data)
-                elif exit_signal:
-                    await self.trade_executor.execute_trade(strategy_name, asset, "sell", strategy_data)
-            except Exception as e:
-                self.logger.error(f"Error monitoring strategy '{strategy_name}' for {asset}: {e}")
+            for asset in assets:
+                if asset not in market_data:
+                    self.logger.error(f"No market data available for {asset}. Skipping.")
+                    continue
 
+                asset_data = market_data[asset]
+
+                # Check entry conditions
+                if self.evaluate_conditions(strategy_data["conditions"]["entry"], asset_data):
+                    trade_details = self.trade_generator.generate_trade(
+                        strategy_data, asset_data, "buy"
+                    )
+
+                    # Validate risk before executing trade
+                    if self.risk_manager.validate_trade(
+                        strategy_name=strategy["title"],
+                        account_balance=self.trade_executor.get_available_balance(asset),
+                        entry_price=trade_details["price"],
+                        stop_loss=trade_details["stop_loss"]
+                    ):
+                        await self.trade_executor.execute_trade(strategy["title"], trade_details)
+
+                # Check exit conditions
+                elif self.evaluate_conditions(strategy_data["conditions"]["exit"], asset_data):
+                    active_trade = self.trade_manager.get_active_trade(strategy["id"], asset)
+                    if active_trade:
+                        await self.trade_executor.close_trade(active_trade)
+        except Exception as e:
+            self.logger.error(f"Error monitoring strategy '{strategy['title']}': {e}")
+            
 
     async def deactivate_monitoring(self, strategy_id: str):
         """
@@ -218,24 +242,25 @@ class MarketMonitor:
             self.logger.error(f"Failed to fetch balances: {e}")
             return {}
         
-    async def get_current_market_data(self, asset: str) -> pd.DataFrame:
+    async def get_current_market_data(self, assets):
+        """
+        Fetches current market data for multiple assets in a batch request.
+        :param assets: List of asset symbols (e.g., ["BTC/USDT", "ETH/USDT"]).
+        :return: Dictionary with asset symbols as keys and their market data as values.
+        """
         try:
-            tickers = await self.exchange.fetch_tickers()
-            data = tickers.get(asset, {})
-            if not data:
-                self.logger.warning(f"No market data returned for {asset}.")
-                return pd.DataFrame()
-
-            # Convert to DataFrame
-            df = pd.DataFrame([data], columns=["timestamp", "open", "high", "low", "close", "volume"])
-            df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
-            df.set_index("datetime", inplace=True)
-            return df
+            # Use fetch_tickers to batch fetch market data
+            market_data = await self.exchange.fetch_tickers(assets)
+            return {
+                symbol: {
+                    "price": data["last"],
+                    "high": data["high"],
+                    "low": data["low"],
+                    "volume": data["baseVolume"],
+                    "change_24h": data.get("percentage", 0),
+                }
+                for symbol, data in market_data.items()
+            }
         except Exception as e:
-            self.logger.error(f"Failed to fetch market data for {asset}: {e}")
-            return pd.DataFrame()
-
-
-        except Exception as e:
-            self.logger.error(f"Error fetching current market data for {asset}: {e}")
-            return pd.DataFrame()  # Return empty DataFrame on failure
+            self.logger.error(f"Error fetching market data for assets {assets}: {e}")
+            return {}
