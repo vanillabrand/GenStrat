@@ -52,7 +52,7 @@ class TradeGenerator:
     def detect_whale_activity(self, asset):
 
         """Detect abnormal market activity through order book data."""
-        order_book = exchange.fetch_order_book(asset)
+        order_book = self.exchange.fetch_order_book(asset)
         asks, bids = order_book['asks'], order_book['bids']
         
         # Calculate market depth ratio (anti-whale protection)

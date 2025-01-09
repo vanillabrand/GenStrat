@@ -22,3 +22,5 @@ dump.rdb
 dump.rdb
 strategy_interpreter.py
 trading_bot.log
+test_strategy.py
+strategy_interpreter.py

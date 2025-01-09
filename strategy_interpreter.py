@@ -96,7 +96,7 @@ class StrategyInterpreter:
         return strategy_data
 
     def interpret(self, description: str) -> dict:
-        """Interprets a strategy description into JSON using GPT."""
+        """Interprets a strategy description into JSON using GPT and validates it."""
         cache_key = self._generate_cache_key(description)
         if cache_key in self.cache and not self._is_cache_expired(self.cache[cache_key]):
             self.logger.info("Returning cached result.")
@@ -104,19 +104,22 @@ class StrategyInterpreter:
 
         # Call OpenAI API
         prompt = self.create_prompt(description)
-        system_role = "You are an expert crypto trading assistant. Better than anyone else."
+        system_role = "You are an expert crypto trading assistant. Convert strategies to JSON."
         strategy_json = self.call_openai_with_fallback(prompt, system_role)
-
 
         try:
             strategy_data = json.loads(strategy_json)
             strategy_data = self.apply_defaults(strategy_data)
+            
+            # Validate JSON
             validate(instance=strategy_data, schema=self.schema)
             self.logger.info(f"Strategy interpreted successfully: {strategy_data}")
+
+            # Cache the valid data
             self.cache[cache_key] = {"data": strategy_data, "timestamp": time.time()}
             return strategy_data
         except (json.JSONDecodeError, ValidationError, KeyError) as e:
-            self.logger.error(f"Error interpreting strategy: {e}")
+            self.logger.error(f"Strategy interpretation failed: {e}")
             raise ValueError(f"Error interpreting strategy: {e}")
 
     def create_prompt(self, description: str) -> str:
@@ -134,7 +137,7 @@ class StrategyInterpreter:
         - Ensure that the strategy is profitable and has an extremely high risk/reward ratio unless specificed otherwise in the prompt.
         - Ensure that the strategy is not overfit to historical data and is robust to changing market conditions.
         - Specify the timeframe for each condition in the conditions field.
-        - Write a short description of the strategy, including the rationale behind it iun the strategy_rationale field.
+        - Write a short description of the strategy, including the rationale behind it in the strategy_rationale field.
         - Include any additional parameters or settings that are necessary for the strategy to function correctly
         - The response contains only valid JSON, no additional explanations or text. Encode strings where necessary.
         - Conditions include all relevant trading pairs, up to 30 pairs for futures and 20 pairs for spot and margin.

@@ -17,32 +17,26 @@ class TradeExecutor:
 
     async def execute_trade(self, strategy_name, asset, side, strategy_data, market_type="spot"):
         """
-        Executes a trade dynamically based on JSON strategy parameters.
+        Executes trades based on JSON strategy data with strict adherence to entry conditions.
         """
         try:
             budget = self.budget_manager.get_budget(strategy_name)
             if budget <= 0:
-                self.logger.warning(f"No available budget for strategy '{strategy_name}'. Trade skipped.")
+                self.logger.error(f"No budget for strategy '{strategy_name}'.")
                 return
 
+            # Extract parameters
             trade_params = strategy_data.get("trade_parameters", {})
             position_size = trade_params.get("position_size", 1)
+            order_type = trade_params.get("order_type", "market")
             risk_params = strategy_data.get("risk_management", {})
 
-            stop_loss = risk_params.get("stop_loss")
-            take_profit = risk_params.get("take_profit")
-            trailing_stop = risk_params.get("trailing_stop")
-
-            ticker = await self.exchange.fetch_ticker(asset)
+            # Price and amount calculation
+            ticker = await self.exchange.fetch_ticker(asset, params={"type": market_type})
             price = ticker["last"]
-
             amount = self.calculate_amount(budget, price, position_size)
 
-            if amount <= 0:
-                self.logger.warning(f"Insufficient budget to place trade for {asset}.")
-                return
-
-            order_type = trade_params.get("order_type", "limit")
+            # Place trade
             order = await self.exchange.create_order(
                 symbol=asset,
                 type=order_type,
@@ -52,14 +46,26 @@ class TradeExecutor:
                 params={"type": market_type}
             )
 
-            self.logger.info(f"{side.capitalize()} order placed: {amount} {asset} at {price}. Waiting for fill...")
+            self.logger.info(f"{side.capitalize()} trade for {amount} {asset} at {price}.")
 
-            # Monitor the order for fills
-            await self.monitor_order_fill(order, strategy_name, asset, side, amount, price, market_type)
+            trade_record = {
+                "strategy_name": strategy_name,
+                "asset": asset,
+                "side": side,
+                "amount": amount,
+                "price": price,
+                "order_id": order["id"],
+                "status": "open",
+                "market_type": market_type,
+                "timestamp": order["timestamp"],
+            }
+
+            # Record trade and deduct budget
+            self.trade_manager.record_trade(trade_record)
+            self.budget_manager.update_budget(strategy_name, budget - (amount * price))
 
         except Exception as e:
-            self.logger.error(f"Error executing trade for strategy '{strategy_name}': {e}")
-            self.trade_manager.add_failed_trade(strategy_name, asset, side, strategy_data)
+            self.logger.error(f"Trade execution error for strategy '{strategy_name}': {e}")
 
     async def monitor_order_fill(self, order, strategy_name, asset, side, amount, price, market_type):
         """
@@ -87,40 +93,59 @@ class TradeExecutor:
                 await self.fallback_to_market(order_id, asset, side, remaining, market_type)
                 break
 
-    async def handle_partial_fill(self, order_status, strategy_name, asset, side, remaining, market_type):
+    async def execute_trade(self, strategy_name, asset, side, strategy_data, market_type="spot"):
         """
-        Handles partially filled trades by retrying the remaining amount as a new order.
-        Updates the budget with the unspent portion.
+        Executes trades based on JSON strategy data with strict adherence to entry conditions.
         """
-        price = order_status.get("price", 0)
+        try:
+            budget = self.budget_manager.get_budget(strategy_name)
+            if budget <= 0:
+                self.logger.error(f"No budget for strategy '{strategy_name}'.")
+                return
 
-        # Calculate the unused portion of the budget and reallocate
-        unused_budget = remaining * price
-        current_budget = self.budget_manager.get_budget(strategy_name)
-        updated_budget = current_budget + unused_budget
+            # Extract parameters
+            trade_params = strategy_data.get("trade_parameters", {})
+            position_size = trade_params.get("position_size", 1)
+            order_type = trade_params.get("order_type", "market")
+            risk_params = strategy_data.get("risk_management", {})
 
-        # Ensure budget is not exceeding the available exchange balance
-        exchange_balance = await self.fetch_asset_balance(asset)
-        if updated_budget > exchange_balance:
-            updated_budget = exchange_balance
-            self.logger.warning(
-                f"Budget for {strategy_name} capped at {updated_budget:.2f} USDT due to limited exchange balance."
+            # Price and amount calculation
+            ticker = await self.exchange.fetch_ticker(asset, params={"type": market_type})
+            price = ticker["last"]
+            amount = self.calculate_amount(budget, price, position_size)
+
+            # Place trade
+            order = await self.exchange.create_order(
+                symbol=asset,
+                type=order_type,
+                side=side,
+                amount=amount,
+                price=None if order_type == "market" else price,
+                params={"type": market_type}
             )
 
-        self.budget_manager.update_budget(strategy_name, updated_budget)
-        self.logger.info(f"Returned {unused_budget:.2f} USDT to budget for strategy '{strategy_name}'.")
+            self.logger.info(f"{side.capitalize()} trade for {amount} {asset} at {price}.")
 
-        retry_trade = {
-            "strategy_name": strategy_name,
-            "asset": asset,
-            "side": side,
-            "trade_parameters": {"position_size": remaining, "order_type": "market"},
-            "strategy_id": order_status.get("strategy_id"),
-            "risk_management": {}
-        }
+            trade_record = {
+                "strategy_name": strategy_name,
+                "asset": asset,
+                "side": side,
+                "amount": amount,
+                "price": price,
+                "order_id": order["id"],
+                "status": "open",
+                "market_type": market_type,
+                "timestamp": order["timestamp"],
+            }
 
-        self.trade_manager.add_failed_trade(strategy_name, asset, side, retry_trade)
-        self.logger.info(f"Requeued remaining {remaining} {asset} for trade execution.")
+            # Record trade and deduct budget
+            self.trade_manager.record_trade(trade_record)
+            self.budget_manager.update_budget(strategy_name, budget - (amount * price))
+
+        except Exception as e:
+            self.logger.error(f"Trade execution error for strategy '{strategy_name}': {e}")
+
+
 
     async def fallback_to_market(self, order_id, asset, side, remaining, market_type):
         """

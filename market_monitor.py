@@ -53,25 +53,22 @@ class MarketMonitor:
         asyncio.create_task(self.monitor_strategy(strategy))
 
     async def monitor_strategy(self, strategy):
-        """
-        Monitors a strategy by evaluating entry conditions and triggering trades.
-        :param strategy: The strategy to monitor.
-        """
         strategy_name = strategy["title"]
         strategy_data = strategy["data"]
 
-        for asset in strategy_data.get("assets", []):
+        for asset in strategy_data["assets"]:
             try:
                 df = await self.fetch_live_data(asset)
-                entry_signal = self.evaluate_conditions(strategy_data.get("conditions", {}).get("entry", []), df)
+                entry_signal = self.evaluate_conditions(strategy_data["conditions"]["entry"], df)
+                exit_signal = self.evaluate_conditions(strategy_data["conditions"]["exit"], df)
 
                 if entry_signal:
-                    self.logger.info(f"Entry signal detected for {asset}. Executing trade.")
-                    await self.trade_executor.execute_trade(
-                        strategy_name, asset, "buy", strategy_data
-                    )
+                    await self.trade_executor.execute_trade(strategy_name, asset, "buy", strategy_data)
+                elif exit_signal:
+                    await self.trade_executor.execute_trade(strategy_name, asset, "sell", strategy_data)
             except Exception as e:
-                self.logger.error(f"Error monitoring '{strategy_name}' for asset '{asset}': {e}")
+                self.logger.error(f"Error monitoring strategy '{strategy_name}' for {asset}: {e}")
+
 
     async def deactivate_monitoring(self, strategy_id: str):
         """
