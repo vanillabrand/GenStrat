@@ -130,19 +130,23 @@ class StrategyInterpreter:
 
         Ensure that:
         - Indicators, assets, and conditions are compatible with Backtrader, CCXT, and BitGet.
-        - Entry and exit conditions are fully specified and realistic. Thesed should be specified in the conditions field. Use multiples of these is you are specifyingh more than one condition
-        - Risk management settings include stop-loss, take-profit, and trailing stop-loss.
-        - Strategies allow for dynamic trade management, which will be applied at runtime. Create multiple trades based on current conditions.
+        - Entry and exit conditions are fully specified and realistic. Thesed should be specified in the conditions field. Use multiples of these if you need to interpret a complicated strategy.
+        - Risk management settings include stop-loss, take-profit, and trailing stop-loss. Check if the user has specified the risk level in the prompt.
+        - Make sure you have enough technical information in the returned JSON to support the generation of the correct trades and parameters matching the strategy.
         - The strategy is designed for the spot, futures, or margin market type. Please specify it in the market_type field.
         - Ensure that the strategy is profitable and has an extremely high risk/reward ratio unless specificed otherwise in the prompt.
         - Ensure that the strategy is not overfit to historical data and is robust to changing market conditions.
         - Specify the timeframe for each condition in the conditions field.
+        - Be aware of the limitations of the trading platform and the exchange you are using. (such as leverage limits for each market type and trading pair)
         - Write a short description of the strategy, including the rationale behind it in the strategy_rationale field.
         - Include any additional parameters or settings that are necessary for the strategy to function correctly
         - The response contains only valid JSON, no additional explanations or text. Encode strings where necessary.
         - Conditions include all relevant trading pairs, up to 30 pairs for futures and 20 pairs for spot and margin.
-
-        Strategy Description:
+        - Use new and innovative strategies that are not commonly found in the market to compliment the user's request
+        - Ensure the strategy takes in to consideration anti-whale and anti-bot measures to prevent manipulation of the market
+        - State the strategy
+        
+         Strategy Description:
         {description}
         JSON:
         """

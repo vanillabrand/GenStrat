@@ -27,3 +27,6 @@ strategy_interpreter.py
 __pycache__/dashboard.cpython-312.pyc
 __pycache__/strategy_manager.cpython-312.pyc
 dump.rdb
+__pycache__/dashboard.cpython-312.pyc
+__pycache__/strategy_manager.cpython-312.pyc
+trading_bot.log

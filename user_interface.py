@@ -15,6 +15,7 @@ from dashboard import Dashboard
 from strategy_interpreter import StrategyInterpreter
 from market_monitor import MarketMonitor
 from trade_executor import TradeExecutor    
+from trade_generator import TradeGenerator
 
 class UserInterface:
     """
@@ -32,8 +33,9 @@ class UserInterface:
         self.budget_manager = BudgetManager()
         self.performance_manager = PerformanceManager()
         self.trade_manager = TradeManager(self.exchange, self.budget_manager, self.risk_manager)
+        self.trade_generator = TradeGenerator(self.exchange, self.trade_manager)
         self.strategy_manager = StrategyManager(self.trade_manager)
-        self.backtester = Backtester(self.strategy_manager, self.budget_manager)
+       
         self.trade_executor = TradeExecutor(self.exchange, self.trade_manager, self.budget_manager)       
         self.market_monitor = MarketMonitor(exchange, self.strategy_manager, self.trade_manager, self.trade_executor, self.budget_manager)
         self.dashboard = Dashboard(exchange, self.strategy_manager, self.performance_manager, self.market_monitor)
@@ -42,7 +44,7 @@ class UserInterface:
       
         self.market_monitor.dashboard = self.dashboard
         self.strategy_manager.set_monitoring(self.market_monitor)
-        
+        self.backtester = Backtester(self.strategy_manager, self.budget_manager, self.risk_manager, self.tr)
         self.configure_layout()
 
     def configure_layout(self):

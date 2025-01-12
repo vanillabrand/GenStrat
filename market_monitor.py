@@ -4,6 +4,7 @@ import logging
 import pandas_ta as ta
 from rich.live import Live
 from rich.table import Table
+from cachetools import TTLCache
 from typing import Dict, List
 
 
@@ -26,6 +27,7 @@ class MarketMonitor:
         self.websocket_connections = {}
         self.monitoring_active = False
         self.balance_threshold = 50  # Minimum balance threshold to trigger warnings
+        self.market_data_cache = TTLCache(maxsize=100, ttl=10)  # Cache with 10-second TTL
 
     def create_dashboard(self):
         """
@@ -58,32 +60,28 @@ class MarketMonitor:
         """
         try:
             strategy_data = self.strategy_manager.get_strategy_data(strategy["id"])
-            assets = strategy_data["assets"]  # List of assets for this strategy
+            assets = strategy_data.get("assets", [])
+            if not assets:
+                self.logger.warning(f"Strategy '{strategy['title']}' has no assets defined.")
+                return
 
-            # Batch fetch market data for all assets
+            # Batch fetch market data
             market_data = await self.get_current_market_data(assets)
 
             for asset in assets:
                 if asset not in market_data:
-                    self.logger.error(f"No market data available for {asset}. Skipping.")
+                    self.logger.warning(f"No market data available for {asset}. Skipping.")
                     continue
 
                 asset_data = market_data[asset]
 
                 # Check entry conditions
                 if self.evaluate_conditions(strategy_data["conditions"]["entry"], asset_data):
-                    trade_details = self.trade_generator.generate_trade(
+                    trade_details = self.trade_manager.generate_trade(
                         strategy_data, asset_data, "buy"
                     )
-
-                    # Validate risk before executing trade
-                    if self.risk_manager.validate_trade(
-                        strategy_name=strategy["title"],
-                        account_balance=self.trade_executor.get_available_balance(asset),
-                        entry_price=trade_details["price"],
-                        stop_loss=trade_details["stop_loss"]
-                    ):
-                        await self.trade_executor.execute_trade(strategy["title"], trade_details)
+                    if self.trade_executor.validate_and_execute_trade(strategy["title"], asset, trade_details):
+                        self.logger.info(f"Trade executed for asset {asset} under strategy '{strategy['title']}'.")
 
                 # Check exit conditions
                 elif self.evaluate_conditions(strategy_data["conditions"]["exit"], asset_data):
@@ -92,7 +90,6 @@ class MarketMonitor:
                         await self.trade_executor.close_trade(active_trade)
         except Exception as e:
             self.logger.error(f"Error monitoring strategy '{strategy['title']}': {e}")
-            
 
     async def deactivate_monitoring(self, strategy_id: str):
         """
@@ -136,104 +133,54 @@ class MarketMonitor:
         balances = await self.fetch_exchange_balances()
 
         for trade in active_trades:
-            strategy_name = trade.get("strategy_id", "Unknown")
-            asset = trade.get("asset", "Unknown")
-            market_type = trade.get("market_type", "spot")
-            status = trade.get("status", "Unknown")
-            filled = float(trade.get("filled", 0))
-            remaining = float(trade.get("remaining", 0))
-            pnl = self.calculate_pnl(trade)
-            budget = self.budget_manager.get_budget(strategy_name)
-            balance = balances.get(asset, 0)
-            risk_level = trade.get("risk_level", "Moderate")
+            self.update_dashboard_row(trade, balances)
 
-            if balance < budget:
-                self.logger.warning(f"Exchange balance for {asset} is below strategy budget.")
-                self.budget_manager.update_budget(strategy_name, balance)
-
-            balance_display = (
-                f"[bold red]{balance:.2f} USDT[/bold red]"
-                if balance < self.balance_threshold
-                else f"{balance:.2f} USDT"
-            )
-
-            self.dashboard_table.add_row(
-                strategy_name,
-                asset,
-                market_type,
-                status,
-                f"{pnl:.2f}",
-                f"{(filled / (filled + remaining) * 100) if (filled + remaining) > 0 else 0:.2f}%",
-                str(remaining),
-                f"{budget:.2f} USDT",
-                balance_display,
-                risk_level,
-                status,
-            )
-    def list_strategies(self) -> List[Dict]:
+    def update_dashboard_row(self, trade, balances):
         """
-        Lists all saved strategies.
-        :return: A list of dictionaries with strategy details.
+        Updates a single row in the dashboard for a trade.
         """
-        try:
-            strategies = self.strategy_manager.list_strategies()
-            return strategies
-        except Exception as e:
-            self.logger.error(f"Failed to list strategies: {e}")
-            return []
+        asset = trade.get("asset", "Unknown")
+        balance = balances.get(asset, 0)
+        balance_warning = balance < self.balance_threshold
 
-    def evaluate_conditions(self, conditions: List[dict], df: pd.DataFrame) -> bool:
-        try:
-            if df.empty or len(df) < 20:
-                return False
+        balance_display = (
+            f"[bold red]{balance:.2f} USDT[/bold red]" if balance_warning else f"{balance:.2f} USDT"
+        )
 
-            for condition in conditions:
-                indicator = condition["indicator"]
-                operator = condition["operator"]
-                value = condition["value"]
-                params = condition.get("indicator_parameters", {})
+        pnl = self.calculate_pnl(trade)
+        budget = self.budget_manager.get_budget(trade["strategy_id"])
+        risk_level = trade.get("risk_level", "Moderate")
+        self.dashboard_table.add_row(
+            trade["strategy_id"], asset, trade["market_type"],
+            trade["status"], f"{pnl:.2f}", "N/A", "N/A",
+            f"{budget:.2f} USDT", balance_display, risk_level,
+            trade.get("last_action", "N/A")
+        )
 
-                indicator_values = self.calculate_indicator(indicator, df, params)
-                latest_value = indicator_values.iloc[-1]
-
-                if not self.apply_operator(latest_value, operator, value):
-                    return False
-
-            return True
-        except Exception as e:
-            self.logger.error(f"Error evaluating conditions: {e}")
-            return False
-    
-    
-    async def fetch_live_data(self, asset: str) -> pd.DataFrame:
+    async def get_current_market_data(self, assets):
         """
-        Fetches live market data via WebSocket or REST API fallback.
-        :param asset: The trading pair (e.g., 'BTC/USDT').
-        :return: DataFrame with OHLCV market data.
+        Fetches current market data for multiple assets in a batch request.
         """
-        try:
-            # Attempt WebSocket connection if available
-            if asset in self.websocket_connections:
-                data = await self.websocket_connections[asset].fetch_live_data()
-            else:
-                # Fallback to REST API if WebSocket isn't active
-                ohlcv = await self.exchange.fetch_ohlcv(asset, timeframe="1m", limit=500)
+        uncached_assets = [asset for asset in assets if asset not in self.market_data_cache]
+        if uncached_assets:
+            try:
+                market_data = await self.exchange.fetch_tickers(uncached_assets)
+                for symbol, data in market_data.items():
+                    self.market_data_cache[symbol] = {
+                        "price": data["last"],
+                        "high": data["high"],
+                        "low": data["low"],
+                        "volume": data["baseVolume"],
+                        "change_24h": data.get("percentage", 0),
+                    }
+            except Exception as e:
+                self.logger.error(f"Error fetching market data: {e}")
 
-                # Transform data into DataFrame
-                df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-                df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
-                df.set_index("datetime", inplace=True)
-                return df
+        return {asset: self.market_data_cache.get(asset, {}) for asset in assets}
 
-        except Exception as e:
-            self.logger.error(f"Error fetching live data for {asset}: {e}")
-            return pd.DataFrame()  # Return empty DataFrame on error
-
-        
     async def fetch_exchange_balances(self) -> dict:
         """
         Fetches available balances for all assets from the exchange.
-        :return: Dictionary with asset symbols and available balances.
         """
         try:
             balances = await self.exchange.fetch_balance()
@@ -241,26 +188,66 @@ class MarketMonitor:
         except Exception as e:
             self.logger.error(f"Failed to fetch balances: {e}")
             return {}
-        
-    async def get_current_market_data(self, assets):
+
+    def evaluate_conditions(self, conditions: List[dict], asset_data: dict) -> bool:
         """
-        Fetches current market data for multiple assets in a batch request.
-        :param assets: List of asset symbols (e.g., ["BTC/USDT", "ETH/USDT"]).
-        :return: Dictionary with asset symbols as keys and their market data as values.
+        Evaluates entry or exit conditions for an asset based on market data.
         """
         try:
-            # Use fetch_tickers to batch fetch market data
-            market_data = await self.exchange.fetch_tickers(assets)
-            return {
-                symbol: {
-                    "price": data["last"],
-                    "high": data["high"],
-                    "low": data["low"],
-                    "volume": data["baseVolume"],
-                    "change_24h": data.get("percentage", 0),
-                }
-                for symbol, data in market_data.items()
-            }
+            for condition in conditions:
+                indicator = condition["indicator"]
+                operator = condition["operator"]
+                value = condition["value"]
+
+                if indicator not in asset_data:
+                    self.logger.warning(f"Missing indicator {indicator} in market data.")
+                    return False
+
+                current_value = asset_data[indicator]
+                if not self.apply_operator(current_value, operator, value):
+                    return False
+
+            return True
         except Exception as e:
-            self.logger.error(f"Error fetching market data for assets {assets}: {e}")
-            return {}
+            self.logger.error(f"Error evaluating conditions: {e}")
+            return False
+
+    def calculate_pnl(self, trade):
+        """
+        Calculates profit and loss (PnL) for a trade.
+        """
+        try:
+            entry_price = float(trade.get("entry_price", 0))
+            current_price = float(trade.get("current_price", 0))
+            size = float(trade.get("size", 0))
+            return (current_price - entry_price) * size
+        except Exception as e:
+            self.logger.error(f"Error calculating PnL for trade: {e}")
+            return 0.0
+
+    def apply_operator(self, value, operator, target):
+        """
+        Applies a comparison operator to a value and a target.
+        """
+        operators = {
+            ">": lambda x, y: x > y,
+            "<": lambda x, y: x < y,
+            ">=": lambda x, y: x >= y,
+            "<=": lambda x, y: x <= y,
+            "==": lambda x, y: x == y,
+        }
+        return operators.get(operator, lambda x, y: False)(value, target)
+
+    def calculate_indicator(self, indicator, df, params):
+        """
+        Calculates the specified indicator for the given DataFrame.
+        """
+        try:
+            if hasattr(ta, indicator):
+                return getattr(ta, indicator)(df["close"], **params)
+            else:
+                self.logger.warning(f"Indicator {indicator} is not recognized by pandas_ta.")
+                return pd.Series(dtype="float64")
+        except Exception as e:
+            self.logger.error(f"Error calculating indicator {indicator}: {e}")
+            return pd.Series(dtype="float64")
