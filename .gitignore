@@ -30,3 +30,5 @@ dump.rdb
 __pycache__/dashboard.cpython-312.pyc
 __pycache__/strategy_manager.cpython-312.pyc
 trading_bot.log
+__pycache__/performance_manager.cpython-312.pyc
+__pycache__/trade_generator.cpython-312.pyc
