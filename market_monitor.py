@@ -1,25 +1,33 @@
 import asyncio
 import pandas as pd
 import logging
+import pandas_ta as ta
 from rich.live import Live
 from rich.table import Table
+from cachetools import TTLCache
+from typing import Dict, List
 
 
 class MarketMonitor:
     """
     Monitors active strategies, evaluates market conditions, and triggers trade executions based on strategy rules.
-    Displays live updates via a dashboard.
+    Provides live updates via a dashboard and maintains WebSocket connections for real-time market data.
     """
 
-    def __init__(self, exchange, strategy_manager, trade_manager, trade_executor):
+    def __init__(self, exchange, strategy_manager, trade_manager, trade_executor, budget_manager):
         self.exchange = exchange
         self.strategy_manager = strategy_manager
         self.trade_manager = trade_manager
         self.trade_executor = trade_executor
+        self.budget_manager = budget_manager
         self.logger = logging.getLogger(self.__class__.__name__)
+        logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         self.dashboard_table = Table(title="Live Trading Dashboard")
         self.create_dashboard()
         self.websocket_connections = {}
+        self.monitoring_active = False
+        self.balance_threshold = 50  # Minimum balance threshold to trigger warnings
+        self.market_data_cache = TTLCache(maxsize=100, ttl=10)  # Cache with 10-second TTL
 
     def create_dashboard(self):
         """
@@ -32,8 +40,75 @@ class MarketMonitor:
         self.dashboard_table.add_column("PnL", justify="center", style="red", no_wrap=True)
         self.dashboard_table.add_column("Filled (%)", justify="center", style="yellow", no_wrap=True)
         self.dashboard_table.add_column("Remaining", justify="center", style="white", no_wrap=True)
+        self.dashboard_table.add_column("Budget", justify="center", style="bright_yellow", no_wrap=True)
+        self.dashboard_table.add_column("Exchange Balance", justify="center", style="bright_cyan", no_wrap=True)
         self.dashboard_table.add_column("Risk Level", justify="center", style="bright_yellow", no_wrap=True)
         self.dashboard_table.add_column("Last Action", justify="center", style="bright_cyan", no_wrap=True)
+
+    async def activate_monitoring(self, strategy):
+        """
+        Activates monitoring for a specific strategy.
+        :param strategy: The strategy to monitor.
+        """
+        self.logger.info(f"Activating monitoring for strategy: {strategy['title']}")
+        self.monitoring_active = True
+        asyncio.create_task(self.monitor_strategy(strategy))
+
+    async def monitor_strategy(self, strategy):
+        """
+        Monitors entry and exit conditions for a strategy and executes or closes trades accordingly.
+        """
+        try:
+            strategy_data = self.strategy_manager.get_strategy_data(strategy["id"])
+            assets = strategy_data.get("assets", [])
+            if not assets:
+                self.logger.warning(f"Strategy '{strategy['title']}' has no assets defined.")
+                return
+
+            # Batch fetch market data
+            market_data = await self.get_current_market_data(assets)
+
+            for asset in assets:
+                if asset not in market_data:
+                    self.logger.warning(f"No market data available for {asset}. Skipping.")
+                    continue
+
+                asset_data = market_data[asset]
+
+                # Check entry conditions
+                if self.evaluate_conditions(strategy_data["conditions"]["entry"], asset_data):
+                    trade_details = self.trade_manager.generate_trade(
+                        strategy_data, asset_data, "buy"
+                    )
+                    if self.trade_executor.validate_and_execute_trade(strategy["title"], asset, trade_details):
+                        self.logger.info(f"Trade executed for asset {asset} under strategy '{strategy['title']}'.")
+
+                # Check exit conditions
+                elif self.evaluate_conditions(strategy_data["conditions"]["exit"], asset_data):
+                    active_trade = self.trade_manager.get_active_trade(strategy["id"], asset)
+                    if active_trade:
+                        await self.trade_executor.close_trade(active_trade)
+        except Exception as e:
+            self.logger.error(f"Error monitoring strategy '{strategy['title']}': {e}")
+
+    async def deactivate_monitoring(self, strategy_id: str):
+        """
+        Deactivates monitoring for a specific strategy by ID.
+        """
+        try:
+            active_trades = self.trade_manager.get_active_trades()
+            trades_to_unsubscribe = [trade for trade in active_trades if trade["strategy_name"] == strategy_id]
+
+            for trade in trades_to_unsubscribe:
+                asset = trade["asset"]
+                if asset in self.websocket_connections:
+                    await self.exchange.websocket_unsubscribe(asset)
+                    del self.websocket_connections[asset]
+                    self.logger.info(f"Unsubscribed from WebSocket for {asset} (Strategy ID: {strategy_id})")
+
+            self.logger.info(f"Monitoring deactivated for strategy ID '{strategy_id}'.")
+        except Exception as e:
+            self.logger.error(f"Failed to deactivate monitoring for strategy ID '{strategy_id}': {e}")
 
     async def start_monitoring(self):
         """
@@ -42,7 +117,7 @@ class MarketMonitor:
         await self.exchange.load_markets()
         self.logger.info("MarketMonitor: Starting monitoring loop...")
         with Live(self.dashboard_table, refresh_per_second=1) as live_dashboard:
-            while True:
+            while self.monitoring_active:
                 try:
                     await self.update_dashboard()
                 except Exception as e:
@@ -50,130 +125,109 @@ class MarketMonitor:
                 await asyncio.sleep(5)
 
     async def update_dashboard(self):
-            self.dashboard_table.rows.clear()
-
-            # Update strategies and trades
-            active_strategies = self.strategy_manager.get_active_strategies()
-            active_trades = self.trade_manager.get_active_trades()
-            pending_trades = self.trade_manager.get_pending_trades()
-
-            # Evaluate and transition pending trades
-            for trade in pending_trades:
-                df = await self.fetch_live_data(trade["asset"])
-                if self.evaluate_conditions(trade["entry_conditions"], df):
-                    self.trade_manager.transition_to_active(trade["trade_id"])
-                    await self.trade_executor.execute_trade(trade["trade_id"], trade["asset"], "buy", trade)
-
-            # Update dashboard rows
-            for trade in active_trades:
-                pnl = self.calculate_pnl(trade)
-                self.dashboard_table.add_row(
-                    trade["strategy_name"],
-                    trade["asset"],
-                    trade["market_type"],
-                    trade["status"],
-                    f"{pnl:.2f}",
-                    str(trade.get("filled", 0)),
-                    str(trade.get("remaining", 0)),
-                    trade.get("risk_level", "Moderate"),
-                    trade.get("last_action", "Unknown"),
-                )
-
-    async def update_websocket_subscriptions(self, trades):
         """
-        Updates WebSocket subscriptions to ensure real-time market data for active trades.
+        Updates the dashboard with active trades, budget, and available balance.
         """
-        subscribed_assets = set(self.websocket_connections.keys())
-        required_assets = {trade["asset"] for trade in trades}
+        self.dashboard_table.rows.clear()
+        active_trades = self.trade_manager.get_active_trades()
+        balances = await self.fetch_exchange_balances()
 
-        # Unsubscribe from assets no longer needed
-        for asset in subscribed_assets - required_assets:
-            if self.websocket_connections.get(asset):
-                await self.exchange.websocket_unsubscribe(asset)
-                del self.websocket_connections[asset]
-                self.logger.info(f"Unsubscribed from WebSocket for asset: {asset}")
+        for trade in active_trades:
+            self.update_dashboard_row(trade, balances)
 
-        # Subscribe to new assets
-        for asset in required_assets - subscribed_assets:
+    def update_dashboard_row(self, trade, balances):
+        """
+        Updates a single row in the dashboard for a trade.
+        """
+        asset = trade.get("asset", "Unknown")
+        balance = balances.get(asset, 0)
+        balance_warning = balance < self.balance_threshold
+
+        balance_display = (
+            f"[bold red]{balance:.2f} USDT[/bold red]" if balance_warning else f"{balance:.2f} USDT"
+        )
+
+        pnl = self.calculate_pnl(trade)
+        budget = self.budget_manager.get_budget(trade["strategy_id"])
+        risk_level = trade.get("risk_level", "Moderate")
+        self.dashboard_table.add_row(
+            trade["strategy_id"], asset, trade["market_type"],
+            trade["status"], f"{pnl:.2f}", "N/A", "N/A",
+            f"{budget:.2f} USDT", balance_display, risk_level,
+            trade.get("last_action", "N/A")
+        )
+
+    async def get_current_market_data(self, assets):
+        """
+        Fetches current market data for multiple assets in a batch request.
+        """
+        uncached_assets = [asset for asset in assets if asset not in self.market_data_cache]
+        if uncached_assets:
             try:
-                connection = await self.exchange.websocket_subscribe(asset)
-                self.websocket_connections[asset] = connection
-                self.logger.info(f"Subscribed to WebSocket for asset: {asset}")
+                market_data = await self.exchange.fetch_tickers(uncached_assets)
+                for symbol, data in market_data.items():
+                    self.market_data_cache[symbol] = {
+                        "price": data["last"],
+                        "high": data["high"],
+                        "low": data["low"],
+                        "volume": data["baseVolume"],
+                        "change_24h": data.get("percentage", 0),
+                    }
             except Exception as e:
-                self.logger.error(f"Failed to subscribe to WebSocket for asset {asset}: {e}")
+                self.logger.error(f"Error fetching market data: {e}")
 
-    async def monitor_strategy(self, strategy):
+        return {asset: self.market_data_cache.get(asset, {}) for asset in assets}
+
+    async def fetch_exchange_balances(self) -> dict:
         """
-        Monitors and evaluates a specific strategy across its assets.
+        Fetches available balances for all assets from the exchange.
         """
-        strategy_name = strategy["title"]
-        strategy_data = strategy["data"]
+        try:
+            balances = await self.exchange.fetch_balance()
+            return {symbol: balance['free'] for symbol, balance in balances['total'].items()}
+        except Exception as e:
+            self.logger.error(f"Failed to fetch balances: {e}")
+            return {}
 
-        for asset in strategy_data["assets"]:
-            try:
-                df = await self.fetch_live_data(asset)
-                entry_signal = self.evaluate_conditions(strategy_data["conditions"]["entry"], df)
-                exit_signal = self.evaluate_conditions(strategy_data["conditions"]["exit"], df)
-
-                if entry_signal:
-                    await self.trade_executor.execute_trade(strategy_name, asset, "buy", strategy_data)
-                elif exit_signal:
-                    await self.trade_executor.execute_trade(strategy_name, asset, "sell", strategy_data)
-            except Exception as e:
-                self.logger.error(f"MarketMonitor: Error monitoring '{strategy_name}' for asset '{asset}' - {e}")
-
-    async def fetch_live_data(self, asset):
+    def evaluate_conditions(self, conditions: List[dict], asset_data: dict) -> bool:
         """
-        Fetches live market data via WebSocket or fallback to REST API.
+        Evaluates entry or exit conditions for an asset based on market data.
         """
-        if asset in self.websocket_connections:
-            try:
-                return await self.websocket_connections[asset].fetch_live_data()
-            except Exception as e:
-                self.logger.warning(f"WebSocket data for {asset} unavailable, falling back to REST API: {e}")
+        try:
+            for condition in conditions:
+                indicator = condition["indicator"]
+                operator = condition["operator"]
+                value = condition["value"]
 
-        ohlcv = await self.exchange.fetch_ohlcv(asset, timeframe="1m", limit=500)
-        df = pd.DataFrame(ohlcv, columns=["timestamp", "open", "high", "low", "close", "volume"])
-        df["datetime"] = pd.to_datetime(df["timestamp"], unit="ms")
-        df.set_index("datetime", inplace=True)
-        return df
+                if indicator not in asset_data:
+                    self.logger.warning(f"Missing indicator {indicator} in market data.")
+                    return False
+
+                current_value = asset_data[indicator]
+                if not self.apply_operator(current_value, operator, value):
+                    return False
+
+            return True
+        except Exception as e:
+            self.logger.error(f"Error evaluating conditions: {e}")
+            return False
 
     def calculate_pnl(self, trade):
         """
-        Calculates profit and loss for a trade.
+        Calculates profit and loss (PnL) for a trade.
         """
         try:
             entry_price = float(trade.get("entry_price", 0))
-            exit_price = float(trade.get("average", 0))
-            amount = float(trade.get("filled", 0))
-
-            if trade["status"] == "closed":
-                pnl = (exit_price - entry_price) * amount if trade["side"] == "buy" else (entry_price - exit_price) * amount
-                return pnl
+            current_price = float(trade.get("current_price", 0))
+            size = float(trade.get("size", 0))
+            return (current_price - entry_price) * size
         except Exception as e:
-            self.logger.error(f"MarketMonitor: Error calculating PnL for trade {trade['trade_id']} - {e}")
-        return 0.0
+            self.logger.error(f"Error calculating PnL for trade: {e}")
+            return 0.0
 
-    def evaluate_conditions(self, conditions, df):
+    def apply_operator(self, value, operator, target):
         """
-        Evaluates conditions for a strategy and determines if they are met.
-        """
-        for condition in conditions:
-            indicator = condition.get("indicator")
-            operator = condition.get("operator")
-            value = condition.get("value")
-
-            if indicator not in df.columns:
-                df[indicator] = self.calculate_indicator(indicator, df)
-
-            last_value = df[indicator].iloc[-1]
-            if not self.compare(last_value, operator, value):
-                return False
-        return True
-
-    def compare(self, a, operator, b):
-        """
-        Compares two values with the given operator.
+        Applies a comparison operator to a value and a target.
         """
         operators = {
             ">": lambda x, y: x > y,
@@ -182,4 +236,18 @@ class MarketMonitor:
             "<=": lambda x, y: x <= y,
             "==": lambda x, y: x == y,
         }
-        return operators[operator](a, b)
+        return operators.get(operator, lambda x, y: False)(value, target)
+
+    def calculate_indicator(self, indicator, df, params):
+        """
+        Calculates the specified indicator for the given DataFrame.
+        """
+        try:
+            if hasattr(ta, indicator):
+                return getattr(ta, indicator)(df["close"], **params)
+            else:
+                self.logger.warning(f"Indicator {indicator} is not recognized by pandas_ta.")
+                return pd.Series(dtype="float64")
+        except Exception as e:
+            self.logger.error(f"Error calculating indicator {indicator}: {e}")
+            return pd.Series(dtype="float64")

@@ -6,7 +6,7 @@ from typing import List, Dict
 
 
 class PerformanceManager:
-    """
+    """ 
     Manages the recording, retrieval, and analysis of strategy performance data.
     """
 

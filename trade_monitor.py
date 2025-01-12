@@ -1,130 +1,137 @@
 import asyncio
 import logging
-from typing import Dict, List
-from rich.table import Table
-from rich.live import Live
+from trade_suggestion_manager import TradeSuggestionManager
+
 
 class TradeMonitor:
     """
-    Monitors active trades, updates statuses, adapts trades dynamically, and provides live feedback.
+    Monitors active trades and validates trade conditions.
     """
 
-    def __init__(self, exchange, trade_manager, performance_manager):
-        self.exchange = exchange
-        self.trade_manager = trade_manager
-        self.performance_manager = performance_manager
+    def __init__(self, trade_manager, trade_executor, performance_manager, strategy_manager, risk_manager):
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.live_dashboard = None
+        self.trade_manager = trade_manager
+        self.trade_executor = trade_executor
+        self.performance_manager = performance_manager
+        self.strategy_manager = strategy_manager
+        self.risk_manager = risk_manager
+        self.trade_suggestion_manager = TradeSuggestionManager()  # OpenAI integration
 
-    def create_dashboard(self):
-        """
-        Creates the live dashboard structure.
-        """
-        table = Table(title="Live Trade Monitoring")
-        table.add_column("Trade ID", justify="center", style="cyan", no_wrap=True)
-        table.add_column("Strategy Name", justify="center", style="green", no_wrap=True)
-        table.add_column("Asset", justify="center", style="magenta", no_wrap=True)
-        table.add_column("Status", justify="center", style="yellow", no_wrap=True)
-        table.add_column("PnL", justify="center", style="red", no_wrap=True)
-        table.add_column("Last Action", justify="center", style="blue", no_wrap=True)
-        return table
-
-    async def start_monitoring(self, interval: int = 10):
-        """
-        Start monitoring trades and updating their statuses.
-        :param interval: Time in seconds between updates.
-        """
-        self.logger.info("Trade monitoring started.")
-        self.live_dashboard = self.create_dashboard()
-        with Live(self.live_dashboard, refresh_per_second=1) as live:
-            while True:
-                try:
-                    await self.update_trades()
-                    self.update_dashboard()
-                except Exception as e:
-                    self.logger.error(f"Error during trade monitoring: {e}")
-                await asyncio.sleep(interval)
-
-    async def update_trades(self):
-        """
-        Fetches and updates the status of active trades, adapting them if needed.
-        """
-        active_trades = self.trade_manager.get_active_trades()
-        for trade in active_trades:
+    async def monitor_active_trades(self):
+        """Main loop to monitor and update active trades."""
+        while True:
             try:
-                order = await self.exchange.fetch_order(trade['order_id'], trade['asset'])
-                updates = {
-                    'status': order['status'],
-                    'filled': order.get('filled', 0),
-                    'remaining': order.get('remaining', 0),
-                    'average': order.get('average', 0),
-                    'pnl': self.calculate_pnl(trade, order)
-                }
-                self.trade_manager.update_trade(trade['trade_id'], updates)
-                self.logger.debug(f"Trade '{trade['trade_id']}' status updated.")
-                await self.adapt_trade(trade, order)
+                active_trades = self.trade_manager.get_active_trades()
+                if not active_trades:
+                    self.logger.info("No active trades to monitor.")
+                for trade in active_trades:
+                    await self.check_trade_conditions(trade)
             except Exception as e:
-                self.logger.error(f"Error updating trade {trade['trade_id']}: {e}")
+                self.logger.error(f"Error monitoring trades: {e}")
+            await asyncio.sleep(5)
 
-    async def adapt_trade(self, trade: Dict, order: Dict):
+    async def monitor_strategy(self, strategy):
         """
-        Adapts a trade based on new market conditions or strategy updates.
-        :param trade: The trade being monitored.
-        :param order: Current order details from the exchange.
+        Monitors entry and exit conditions for a strategy and executes or closes trades accordingly.
         """
         try:
-            strategy_name = trade['strategy_name']
-            updated_conditions = self.trade_manager.get_strategy_conditions(strategy_name)
+            strategy_data = self.strategy_manager.get_strategy_data(strategy["id"])
+            assets = strategy_data.get("assets", [])
+            if not assets:
+                self.logger.warning(f"Strategy '{strategy['title']}' has no assets to monitor.")
+                return
 
-            if 'exit' in updated_conditions:
-                new_exit_price = self.calculate_exit_price(order, updated_conditions['exit'])
-                if new_exit_price != order.get('price'):
-                    await self.exchange.modify_order(
-                        order_id=order['id'],
-                        symbol=trade['asset'],
-                        price=new_exit_price
-                    )
-                    self.logger.info(f"Adjusted exit price for trade {trade['trade_id']} to {new_exit_price}.")
+            for asset in assets:
+                market_data = await self.fetch_market_data(asset)
+
+                # Generate trades using OpenAI
+                suggested_trades = self.trade_suggestion_manager.generate_trades(strategy_data, market_data)
+                for trade_details in suggested_trades:
+                    if self.risk_manager.validate_trade(
+                        strategy_name=strategy["title"],
+                        account_balance=self.trade_executor.get_available_balance(asset),
+                        entry_price=trade_details["price"],
+                        stop_loss=trade_details["stop_loss"]
+                    ):
+                        await self.trade_executor.execute_trade(strategy["title"], trade_details)
+
+                # Monitor exit conditions
+                active_trade = self.trade_manager.get_active_trade(strategy["id"], asset)
+                if active_trade and self.evaluate_conditions(strategy_data["conditions"]["exit"], market_data):
+                    await self.trade_executor.close_trade(active_trade)
         except Exception as e:
-            self.logger.error(f"Error adapting trade {trade['trade_id']}: {e}")
+            self.logger.error(f"Error monitoring strategy '{strategy['title']}': {e}")
 
-    def calculate_pnl(self, trade: Dict, order: Dict) -> float:
+    async def check_trade_conditions(self, trade):
         """
-        Calculates profit and loss for a trade.
-        :param trade: Trade details.
-        :param order: Current order details.
-        :return: Calculated PnL.
+        Checks conditions for an active trade.
         """
-        entry_price = trade.get('entry_price', 0)
-        exit_price = order.get('average', 0)
-        amount = order.get('filled', 0)
-        pnl = (exit_price - entry_price) * amount if trade['side'] == 'buy' else (entry_price - exit_price) * amount
-        return pnl
+        try:
+            market_data = await self.fetch_market_data(trade["asset"])
+            if not market_data:
+                self.logger.warning(f"No market data available for trade {trade['trade_id']}. Skipping.")
+                return
 
-    def calculate_exit_price(self, order: Dict, exit_conditions: Dict) -> float:
-        """
-        Calculates a new exit price based on updated conditions.
-        :param order: Current order details.
-        :param exit_conditions: Updated exit conditions.
-        :return: New exit price.
-        """
-        exit_price = order['price'] * 1.02  # Placeholder logic for a 2% target profit
-        return exit_price
+            entry_price = float(trade.get("entry_price", 0))
+            stop_loss = float(trade.get("stop_loss", 0))
+            take_profit = float(trade.get("take_profit", 0))
 
-    def update_dashboard(self):
+            # Check stop-loss
+            if stop_loss and market_data["price"] <= stop_loss:
+                self.logger.info(f"Trade {trade['trade_id']} hit stop-loss at {market_data['price']}.")
+                await self.trade_executor.close_trade(trade["trade_id"], "stop_loss")
+                return
+
+            # Check take-profit
+            if take_profit and market_data["price"] >= take_profit:
+                self.logger.info(f"Trade {trade['trade_id']} hit take-profit at {market_data['price']}.")
+                await self.trade_executor.close_trade(trade["trade_id"], "take_profit")
+                return
+
+            self.logger.debug(f"Trade {trade['trade_id']} remains active.")
+        except Exception as e:
+            self.logger.error(f"Error checking conditions for trade {trade['trade_id']}: {e}")
+
+    async def fetch_market_data(self, asset):
         """
-        Updates the live dashboard table with the latest trade information.
+        Fetches live market data for a given asset.
         """
-        self.live_dashboard.rows.clear()
-        active_trades = self.trade_manager.get_active_trades()
-        for trade in active_trades:
-            status = trade.get('status', 'Unknown')
-            pnl = trade.get('pnl', 0.0)
-            self.live_dashboard.add_row(
-                trade['trade_id'],
-                trade['strategy_name'],
-                trade['asset'],
-                status,
-                f"{pnl:.2f}",
-                trade.get('last_action', 'N/A')
-            )
+        try:
+            market_data = await self.trade_executor.fetch_market_data(asset)
+            self.logger.debug(f"Market data for {asset}: {market_data}")
+            return market_data
+        except Exception as e:
+            self.logger.error(f"Error fetching market data for {asset}: {e}")
+            return {}
+
+    def evaluate_conditions(self, conditions, market_data):
+        """
+        Evaluates entry or exit conditions from the strategy JSON.
+        """
+        try:
+            for condition in conditions:
+                indicator = condition["indicator"]
+                operator = condition["operator"]
+                value = float(condition["value"])
+                current_value = market_data.get(indicator)
+
+                if current_value is None or not self.compare(operator, current_value, value):
+                    return False
+            return True
+        except Exception as e:
+            self.logger.error(f"Error evaluating conditions: {e}")
+            return False
+
+    @staticmethod
+    def compare(operator, current_value, target_value):
+        """
+        Compares two values based on the specified operator.
+        """
+        operators = {
+            ">": lambda x, y: x > y,
+            "<": lambda x, y: x < y,
+            ">=": lambda x, y: x >= y,
+            "<=": lambda x, y: x <= y,
+            "==": lambda x, y: x == y,
+        }
+        return operators[operator](current_value, target_value)
