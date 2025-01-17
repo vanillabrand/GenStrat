@@ -41,7 +41,7 @@ class UserInterface:
         
         self.trade_executor = TradeExecutor(self.exchange, self.trade_manager, self.budget_manager)       
         self.market_monitor = MarketMonitor(exchange, self.strategy_manager, self.trade_manager, self.trade_executor, self.budget_manager, self.trade_suggest)
-        self.dashboard = Dashboard(exchange, self.strategy_manager, self.performance_manager, self.market_monitor)
+        self.dashboard = Dashboard(exchange, self.strategy_manager, self.performance_manager, self.market_monitor, self.performance_manager)
        
         # Link dependencies
       
