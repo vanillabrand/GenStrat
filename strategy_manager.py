@@ -188,3 +188,64 @@ class StrategyManager:
         except Exception as e:
             self.logger.error(f"Failed to remove strategy '{strategy_id}': {e}")
             raise
+
+    def get_strategy_data(self, strategy_id: str) -> Dict:
+            """
+            Retrieves the strategy data for the given strategy ID from Redis.
+            :param strategy_id: The unique ID of the strategy.
+            :return: A dictionary containing strategy details.
+            """
+            try:
+                strategy_data = self.redis_client.hgetall(f"strategy:{strategy_id}")
+                if not strategy_data:
+                    self.logger.warning(f"No data found for strategy ID '{strategy_id}'.")
+                    return {}
+                
+                # Deserialize fields if necessary
+                strategy_data["assets"] = strategy_data.get("assets", "").split(",")  # Example: "BTC/USDT,ETH/USDT"
+                strategy_data["conditions"] = eval(strategy_data.get("conditions", "{}"))  # Convert string to dict
+                return strategy_data
+            except Exception as e:
+                self.logger.error(f"Failed to get strategy data for '{strategy_id}': {e}")
+                return {}
+            
+            
+    def edit_strategy(self, strategy_id: str, updates: Dict):
+        """
+        Edits an existing strategy in Redis.
+        :param strategy_id: The unique ID of the strategy to edit.
+        :param updates: A dictionary containing the fields to update.
+        """
+        key = f"strategy:{strategy_id}"
+
+        if not self.redis_client.exists(key):
+            raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
+
+        try:
+            # Fetch the existing strategy
+            current_strategy = self.redis_client.hgetall(key)
+            if not current_strategy:
+                raise ValueError(f"Strategy with ID '{strategy_id}' is empty or corrupted.")
+
+            # Deserialize the existing strategy data
+            current_data = json.loads(current_strategy.get("data", "{}"))
+
+            # Apply updates to the strategy data
+            updated_data = {**current_data, **updates.get("data", {})}
+            self.validate_strategy_data(updated_data)  # Validate updated data
+
+            # Update Redis with the new data
+            updated_strategy = {
+                "id": strategy_id,
+                "title": updates.get("title", current_strategy.get("title")),
+                "description": updates.get("description", current_strategy.get("description")),
+                "data": json.dumps(updated_data),
+                "active": current_strategy.get("active", "False"),  # Preserve active status
+            }
+
+            # Save the updated strategy back to Redis
+            self.redis_client.hset(key, mapping=updated_strategy)
+            self.logger.info(f"Strategy '{strategy_id}' updated successfully.")
+        except Exception as e:
+            self.logger.error(f"Failed to edit strategy '{strategy_id}': {e}")
+            raise

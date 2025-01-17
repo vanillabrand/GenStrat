@@ -17,7 +17,7 @@ class Dashboard:
     Includes real-time graphs and price changes for assets in each strategy.
     """
 
-    def __init__(self, exchange, strategy_manager, trade_manager, market_monitor, performance_manager=None):
+    def __init__(self, exchange, strategy_manager, trade_manager, market_monitor, performance_manager):
         self.console = Console()
         self.exchange = exchange
         self.strategy_manager = strategy_manager

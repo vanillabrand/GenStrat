@@ -5,7 +5,7 @@ import logging
 
 class TradeSuggestionManager:
     """
-    Uses OpenAI to generate trade suggestions based on strategy JSON and market data.
+    Uses OpenAI to generate trade suggestions based on strategy JSON, market data, and budget allocation.
     """
 
     def __init__(self, openai_api_key):
@@ -15,10 +15,6 @@ class TradeSuggestionManager:
     async def fetch_market_data(self, asset, market_type, exchange):
         """
         Fetches the required market data for an asset.
-        :param asset: The trading pair (e.g., BTC/USDT).
-        :param market_type: The market type (spot, futures, margin).
-        :param exchange: The exchange object for making API calls.
-        :return: A dictionary containing market data.
         """
         try:
             ticker = await exchange.fetch_ticker(asset)
@@ -39,30 +35,13 @@ class TradeSuggestionManager:
             self.logger.error(f"Failed to fetch market data for {asset}: {e}")
             return {}
 
-    def validate_trade_format(self, trade):
+    def create_prompt(self, strategy_json, market_data, budget):
         """
-        Validates the format of a trade dictionary.
-        """
-        required_fields = [
-            "trade_id", "strategy_name", "asset", "side", "trade_type", "amount", 
-            "price", "stop_loss", "take_profit", "leverage", "market_type", "status"
-        ]
-        for field in required_fields:
-            if field not in trade:
-                raise ValueError(f"Missing required field: {field}")
-        if trade["trade_type"] not in ["long", "short"]:
-            raise ValueError(f"Invalid trade_type: {trade['trade_type']}")
-
-    def create_prompt(self, strategy_json, market_data):
-        """
-        Creates a detailed prompt for OpenAI to generate trades.
-        :param strategy_json: JSON object representing the strategy.
-        :param market_data: Market data for the relevant assets.
-        :return: A string prompt for OpenAI.
+        Creates a detailed prompt for OpenAI to generate trades, including budget allocation.
         """
         return f"""
-        Based on the following strategy and market data, generate trade suggestions for both long and short positions.
-        Ensure the trades include all parameters needed for execution and are optimized for the current and future market conditions.
+        Based on the following strategy, market data, and total budget, generate trade suggestions.
+        Allocate the budget across trades and include the allocated amount for each trade.
 
         ### Strategy JSON:
         {json.dumps(strategy_json, indent=2)}
@@ -70,54 +49,67 @@ class TradeSuggestionManager:
         ### Market Data:
         {json.dumps(market_data, indent=2)}
 
+        ### Budget:
+        {budget}
+
         ### Required Trade Format:
         Each trade must include:
         - `trade_id`: A unique identifier.
         - `strategy_name`: The name of the strategy.
         - `asset`: The trading pair (e.g., BTC/USDT).
         - `side`: Either 'buy' or 'sell'.
-        - `trade_type`: Either 'long' or 'short' to specify the trade direction.
-        - `amount`: The size of the position.
-        - `price`: The target price for entry.
-        - `stop_loss`: Stop-loss price based on the strategy's risk management.
-        - `take_profit`: Take-profit price based on the strategy's reward target.
+        - `trade_type`: Either 'long' or 'short'.
+        - `amount`: The position size.
+        - `budget_allocation`: The portion of the budget allocated to this trade.
+        - `price`: The target entry price.
+        - `stop_loss`: Stop-loss price as per strategy risk management.
+        - `take_profit`: Take-profit price as per strategy reward target.
         - `leverage`: Leverage amount (if applicable).
         - `market_type`: Spot, futures, or margin.
         - `status`: Initially set to 'pending'.
 
         ### Instructions:
-        - Include both long and short trades where applicable.
-        - Ensure the side (`buy` or `sell`) aligns with the trade type (`long` or `short`).
-        - Factor in future market conditions to optimize stop-loss and take-profit levels.
-        - Validate risk/reward parameters using the stop_loss and take_profit fields.
-        - Optimize the position size and amount based on market conditions and available funds.
+        - Allocate portions of the total budget across trades.
+        - Ensure budget allocations are reasonable and do not exceed the total budget.
         - Respond only in JSON format, strictly adhering to the structure above.
 
         Respond with the JSON array of trades.
         """
+    def generate_trades(self, strategy_json, market_data, budget):
+        """
+        Sends strategy JSON, market data, and budget to OpenAI to generate trade suggestions.
+        """
 
-    def generate_trades(self, strategy_json, market_data):
-        """
-        Sends strategy JSON and market data to OpenAI to generate trade suggestions.
-        :param strategy_json: JSON object representing the strategy.
-        :param market_data: Market data for the relevant assets.
-        :return: List of validated trade dictionaries.
-        """
+
         try:
-            prompt = self.create_prompt(strategy_json, market_data)
+            prompt = self.create_prompt(strategy_json, market_data, budget)
             response = openai.ChatCompletion.create(
                 model="gpt-4",
                 messages=[{"role": "system", "content": "You are an expert trading assistant."},
                           {"role": "user", "content": prompt}]
             )
-            trades = json.loads(response.choices[0].message.content)
+            trades = json.loads(response.choices[0].message["content"])
 
-            # Validate trade format
-            for trade in trades:
-                self.validate_trade_format(trade)
 
+            
+      
             self.logger.info(f"Generated trades: {trades}")
             return trades
         except Exception as e:
             self.logger.error(f"Error generating trades: {e}")
             return []
+
+
+    def validate_trade_format(self, trade):
+        """
+        Validates the format of a trade dictionary.
+        """
+        required_fields = [
+            "trade_id", "strategy_name", "asset", "side", "trade_type", "amount", 
+            "budget_allocation", "price", "stop_loss", "take_profit", "leverage", "market_type", "status"
+        ]
+        for field in required_fields:
+            if field not in trade:
+                raise ValueError(f"Missing required field: {field}")
+        if trade["trade_type"] not in ["long", "short"]:
+            raise ValueError(f"Invalid trade_type: {trade['trade_type']}")

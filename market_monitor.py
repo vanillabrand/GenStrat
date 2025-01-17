@@ -14,12 +14,13 @@ class MarketMonitor:
     Provides live updates via a dashboard and maintains WebSocket connections for real-time market data.
     """
 
-    def __init__(self, exchange, strategy_manager, trade_manager, trade_executor, budget_manager):
+    def __init__(self, exchange, strategy_manager, trade_manager, trade_executor, budget_manager, trade_suggestion_manager):
         self.exchange = exchange
         self.strategy_manager = strategy_manager
         self.trade_manager = trade_manager
         self.trade_executor = trade_executor
         self.budget_manager = budget_manager
+        self.trade_suggestion_manager = trade_suggestion_manager
         self.logger = logging.getLogger(self.__class__.__name__)
         logging.basicConfig(level=logging.DEBUG, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         self.dashboard_table = Table(title="Live Trading Dashboard")
@@ -65,29 +66,42 @@ class MarketMonitor:
                 self.logger.warning(f"Strategy '{strategy['title']}' has no assets defined.")
                 return
 
-            # Batch fetch market data
+            # Fetch the total budget for the strategy
+            budget = self.budget_manager.get_budget(strategy["id"])
+
+            # Fetch market data
             market_data = await self.get_current_market_data(assets)
 
-            for asset in assets:
-                if asset not in market_data:
-                    self.logger.warning(f"No market data available for {asset}. Skipping.")
-                    continue
+            # Generate trades with budget allocation
+            suggested_trades = self.trade_suggestion_manager.generate_trades(strategy_data, market_data, budget)
 
-                asset_data = market_data[asset]
+            # Check if trades have budget allocations
+            all_trades_have_budget = all("budget_allocation" in trade for trade in suggested_trades)
+            if not all_trades_have_budget:
+                self.logger.warning(f"TradeSuggestionManager did not return budget allocations for some trades. Falling back to dynamic allocation.")
 
-                # Check entry conditions
-                if self.evaluate_conditions(strategy_data["conditions"]["entry"], asset_data):
-                    trade_details = self.trade_manager.generate_trade(
-                        strategy_data, asset_data, "buy"
-                    )
-                    if self.trade_executor.validate_and_execute_trade(strategy["title"], asset, trade_details):
-                        self.logger.info(f"Trade executed for asset {asset} under strategy '{strategy['title']}'.")
+                # Allocate budget dynamically across assets
+                asset_weights = {asset: 1 for asset in assets}  # Equal weighting for simplicity
+                self.budget_manager.allocate_budget_dynamically(budget, asset_weights)
 
-                # Check exit conditions
-                elif self.evaluate_conditions(strategy_data["conditions"]["exit"], asset_data):
-                    active_trade = self.trade_manager.get_active_trade(strategy["id"], asset)
-                    if active_trade:
-                        await self.trade_executor.close_trade(active_trade)
+                # Assign budget allocation to trades manually
+                for trade in suggested_trades:
+                    asset = trade["asset"]
+                    trade["budget_allocation"] = self.budget_manager.get_budget(asset)
+                    self.logger.info(f"Allocated {trade['budget_allocation']:.2f} USDT to trade for asset '{asset}'.")
+
+            # Process each trade
+            for trade_details in suggested_trades:
+                allocated_budget = trade_details.get("budget_allocation", 0)
+
+                # Validate and execute trades
+                if self.trade_executor.validate_and_execute_trade(strategy["title"], trade_details):
+                    # Deduct the allocated budget
+                    if self.budget_manager.update_budget(strategy["id"], allocated_budget):
+                        self.logger.info(f"Trade executed for {trade_details['asset']} under strategy '{strategy['title']}'. Budget allocated: {allocated_budget:.2f} USDT.")
+                else:
+                    # Return unused budget if trade execution fails
+                    self.budget_manager.return_budget(strategy["id"], allocated_budget)
         except Exception as e:
             self.logger.error(f"Error monitoring strategy '{strategy['title']}': {e}")
 
@@ -148,7 +162,7 @@ class MarketMonitor:
         )
 
         pnl = self.calculate_pnl(trade)
-        budget = self.budget_manager.get_budget(trade["strategy_id"])
+        budget = self.budget_manager.get_budget(trade["strategy_id"])  # Fetch the remaining budget
         risk_level = trade.get("risk_level", "Moderate")
         self.dashboard_table.add_row(
             trade["strategy_id"], asset, trade["market_type"],
@@ -156,7 +170,7 @@ class MarketMonitor:
             f"{budget:.2f} USDT", balance_display, risk_level,
             trade.get("last_action", "N/A")
         )
-
+        
     async def get_current_market_data(self, assets):
         """
         Fetches current market data for multiple assets in a batch request.

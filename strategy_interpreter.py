@@ -8,7 +8,7 @@ import os
 
 class StrategyInterpreter:
     def __init__(self, api_key, cache_ttl=3600):
-        self.api_key = "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"
+        self.api_key = os.getenv("OPENAI_API_KEY")
         self.schema = self._get_strategy_schema()
         self.logger = logging.getLogger(self.__class__.__name__)
         self._configure_logger()
@@ -144,7 +144,6 @@ class StrategyInterpreter:
         - Conditions include all relevant trading pairs, up to 30 pairs for futures and 20 pairs for spot and margin.
         - Use new and innovative strategies that are not commonly found in the market to compliment the user's request
         - Ensure the strategy takes in to consideration anti-whale and anti-bot measures to prevent manipulation of the market
-        - State the strategy
         
          Strategy Description:
         {description}

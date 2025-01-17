@@ -1,6 +1,7 @@
 import os
 import logging
 import asyncio
+import pandas as pd
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
@@ -14,7 +15,8 @@ from backtester import Backtester
 from dashboard import Dashboard
 from strategy_interpreter import StrategyInterpreter
 from market_monitor import MarketMonitor
-from trade_executor import TradeExecutor    
+from trade_executor import TradeExecutor
+from trade_suggestion_manager import TradeSuggestionManager  
 
 
 class UserInterface:
@@ -31,21 +33,22 @@ class UserInterface:
         # Initialize managers and the dashboardß
         self.risk_manager = RiskManager()
         self.budget_manager = BudgetManager()
-        self.performance_manager = PerformanceManager()
-        self.trade_manager = TradeManager(self.exchange, self.budget_manager, self.risk_manager)
-        self.strategy_manager = StrategyManager(self.trade_manager)
        
-        self.trade_executor = TradeExecutor(self.exchange, self.trade_manager, self.budget_manager)       
-        self.market_monitor = MarketMonitor(exchange, self.strategy_manager, self.trade_manager, self.trade_executor, self.budget_manager)
-        self.dashboard = Dashboard(exchange, self.strategy_manager, self.performance_manager, self.market_monitor)
+        self.trade_manager = TradeManager(self.exchange, self.budget_manager, self.risk_manager)
+        self.performance_manager = PerformanceManager(self.trade_manager)
+        self.strategy_manager = StrategyManager(self.trade_manager)
+        self.trade_suggest = TradeSuggestionManager(os.getenv("OPENAI_API_KEY"))
         
+        self.trade_executor = TradeExecutor(self.exchange, self.trade_manager, self.budget_manager)       
+        self.market_monitor = MarketMonitor(exchange, self.strategy_manager, self.trade_manager, self.trade_executor, self.budget_manager, self.trade_suggest)
+        self.dashboard = Dashboard(exchange, self.strategy_manager, self.performance_manager, self.market_monitor)
+       
         # Link dependencies
       
         self.market_monitor.dashboard = self.dashboard
         self.strategy_manager.set_monitoring(self.market_monitor)
-        self.backtester = Backtester(self.strategy_manager, self.budget_manager, self.risk_manager)
+        self.backtester = Backtester(self.strategy_manager, self.budget_manager, self.risk_manager, self.trade_suggest)
         self.configure_layout()
-
     def configure_layout(self):
         """Configures the rich layout for the application."""
         self.layout.split(
@@ -279,18 +282,47 @@ class UserInterface:
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
     async def activate_strategy(self):
-        """Activates a saved strategy for monitoring and execution."""
+        """
+        Activates a saved strategy for live trading with budget allocation.
+        """
         try:
             strategy = self.get_strategy_selection("Select a strategy to activate")
             if not strategy:
                 return
 
-            strategy_id = strategy['id']
-            await self.strategy_manager.activate_strategy(strategy_id)
-            self.console.print(f"[bold green]Strategy '{strategy['title']}' activated.[/bold green]")
+            strategy_id = strategy["id"]
+
+            # Check if a budget is set
+            budget = self.budget_manager.get_budget(strategy_id)
+            if budget <= 0:
+                self.console.print(f"[bold red]No budget assigned to strategy '{strategy['title']}'. Assign a budget before activating.[/bold red]")
+                return
+
+            # Activate the strategy
+            self.strategy_manager.activate_strategy(strategy_id)
+
+            # Generate initial trades based on entry conditions
+            strategy_data = self.strategy_manager.load_strategy(strategy_id)
+            assets = strategy_data.get("assets", [])
+            market_data = {
+                asset: await self.trade_suggest.fetch_market_data(asset, strategy_data["market_type"], self.exchange)
+                for asset in assets
+            }
+
+            # Generate trades with budget allocation
+            suggested_trades = self.trade_suggest.generate_trades(strategy_data, market_data, budget)
+
+            for trade_details in suggested_trades:
+                # Validate and execute trades
+                if self.trade_executor.validate_and_execute_trade(strategy["title"], trade_details):
+                    self.logger.info(f"Trade executed for asset {trade_details['asset']} under strategy '{strategy['title']}'.")
+
+            self.console.print(f"[bold green]Strategy '{strategy['title']}' activated and trades generated.[/bold green]")
+
         except Exception as e:
             self.logger.error(f"Failed to activate strategy: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
+
 
     async def deactivate_strategy(self):
             """Deactivates a saved strategy."""
@@ -328,57 +360,39 @@ class UserInterface:
             self.logger.error(f"Failed to view performance metrics: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
-    def run_backtests(self):
+    async def run_backtests(self):
         """
-        Runs backtests for a selected strategy.
+        Prompts the user to run a backtest, including budget allocation.
         """
         try:
-            # List strategies and prompt user to select one
-            strategies = self.strategy_manager.list_strategies()
-            if not strategies:
-                self.console.print("[bold red]No strategies available for backtesting. Please create one first.[/bold red]")
+            # Select strategy
+            strategy = self.get_strategy_selection("Select a strategy to run backtests")
+            if not strategy:
                 return
 
-            table = Table(title="Available Strategies", title_style="bold cyan")
-            table.add_column("Index", style="magenta", justify="center")
-            table.add_column("Title", style="cyan", justify="left")
-            table.add_column("Active", style="green", justify="center")
-            for i, strategy in enumerate(strategies, start=1):
-                table.add_row(str(i), strategy["title"], "Yes" if strategy["active"] else "No")
-            self.console.print(table)
-
-            # Prompt user to select a strategy
-            choice = int(input("Select a strategy to run backtests (Enter a number): ")) - 1
-            if choice < 0 or choice >= len(strategies):
-                self.console.print("[bold red]Invalid selection. Returning to main menu.[/bold red]")
-                return
-
-            selected_strategy = strategies[choice]
-            strategy_id = selected_strategy["id"]
-
-            # Prompt for data source
-            self.console.print("\n1. Load CSV File")
-            self.console.print("2. Generate Synthetic Data")
-            source_choice = input("Choose data source: ")
-
-            if source_choice == "1":
-                historical_data_path = input("Enter the path to historical data (CSV): ")
-                from pandas import read_csv
-                historical_data = read_csv(historical_data_path)
-            elif source_choice == "2":
-                timeframe = input("Enter timeframe (e.g., 1m, 5m, 1h): ")
-                duration = int(input("Enter duration in days: "))
-                historical_data = self.backtester.generate_synthetic_data(timeframe, duration)
+            # Prompt for historical data source
+            source = input("Enter the source - y for synthetic: ").strip()
+            if source.lower() == "y":
+                # Generate synthetic data
+                scenario = input("Enter market scenario (bull, bear, sideways): ").strip().lower()
+                timeframe = input("Enter timeframe (e.g., 1m, 5m, 1h): ").strip()
+                duration_days = int(input("Enter duration in days: ").strip())
+                historical_data = self.backtester.generate_synthetic_data(scenario, timeframe, duration_days)
             else:
-                self.console.print("[bold red]Invalid choice. Returning to main menu.[/bold red]")
-                return
+                # Load historical data from CSV
+                historical_data = pd.read_csv(source)
 
-            # Run the backtest
-            self.backtester.run_backtest(strategy_id, historical_data)
-            self.console.print(f"[bold green]Backtest completed for strategy '{selected_strategy['title']}'.[/bold green]")
+            # Prompt for budget
+            budget = float(input("Enter total budget for the backtest (in USDT): ").strip())
+
+            # Run backtest
+            strategy_id = strategy["id"]
+            results = self.backtester.run_backtest(strategy_id, historical_data, budget)
+            self.console.print(f"[bold green]Backtest completed for strategy '{strategy['title']}'.[/bold green]")
+            self.console.print(f"Final Portfolio Value: {results['final_portfolio_value']:.2f} USDT")
 
         except Exception as e:
-            self.logger.error(f"Failed to run backtest: {e}")
+            self.logger.error(f"Failed to run backtests: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
     def remove_strategy(self):

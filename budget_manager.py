@@ -84,6 +84,7 @@ class BudgetManager:
             except Exception as e:
                 self.logger.error(f"Failed to return budget for '{strategy_name}': {e}")
 
+
     ### --- Dynamic Budget Allocation ---
 
     def allocate_budget_dynamically(self, total_budget: float, strategy_weights: Dict[str, float]):

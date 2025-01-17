@@ -2,7 +2,7 @@ import redis
 import json
 from datetime import datetime, timedelta
 import logging
-from typing import List, Dict
+from typing import List, Dict, Optional, Any
 
 
 class PerformanceManager:
@@ -10,9 +10,10 @@ class PerformanceManager:
     Manages the recording, retrieval, and analysis of strategy performance data.
     """
 
-    def __init__(self, redis_host='localhost', redis_port=6379, redis_db=0):
+    def __init__(self, trade_manager, redis_host='localhost', redis_port=6379, redis_db=0):
         self.redis_client = redis.StrictRedis(host=redis_host, port=redis_port, db=redis_db, decode_responses=True)
         self.logger = logging.getLogger(self.__class__.__name__)
+        self.trade_manager = trade_manager
 
     def record_performance(self, strategy_name: str, performance_data: Dict):
         """
@@ -139,3 +140,27 @@ class PerformanceManager:
             self.logger.info(f"Deleted old performance data for strategy '{strategy_name}' older than {days} days.")
         except Exception as e:
             self.logger.error(f"Failed to delete old performance data for strategy '{strategy_name}': {e}")
+
+    def get_active_trades(self, strategy_id: Optional[str] = None) -> List[Dict[str, Any]]:
+            """
+            Retrieves a list of currently active trades. Filters by strategy ID if provided.
+            :param strategy_id: Optional. The strategy ID to filter trades by.
+            :return: A list of dictionaries containing active trade details.
+            """
+            try:
+                # Fetch all trades from the TradeManager
+                all_trades = self.trade_manager.get_all_trades()
+
+                # Filter active trades
+                active_trades = [trade for trade in all_trades if trade.get("status") == "active"]
+
+                # Further filter by strategy ID if provided
+                if strategy_id:
+                    active_trades = [trade for trade in active_trades if trade.get("strategy_id") == strategy_id]
+
+                self.logger.info(f"Active trades retrieved: {active_trades}")
+                return active_trades
+
+            except Exception as e:
+                self.logger.error(f"Error retrieving active trades: {e}")
+                return []

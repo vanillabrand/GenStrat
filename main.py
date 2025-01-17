@@ -4,41 +4,56 @@ import os
 import asyncio
 import logging
 
-async def async_main():
-    # Initialize the exchange object (e.g., Bitget)
-    exchange = ccxt.bitget({
-        "apiKey": os.getenv("BITGET_API_KEY"),
-        "secret": os.getenv("BITGET_API_SECRET"),
-        "password": os.getenv("BITGET_API_PASSPHRASE")  # If applicable
-    })
 
+async def async_main():
+
+    # Logging configuration
     LOGGING_FORMAT = '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
     LOGGING_FILE = 'trading_bot.log'
-    LOGGING_LEVEL = logging.DEBUG
 
     logging.basicConfig(
         level=logging.DEBUG,
-        format='%(asctime)s [%(levelname)s] %(name)s: %(message)s',
+        format=LOGGING_FORMAT,
         handlers=[
-            logging.FileHandler('trading_bot.log'),
+            logging.FileHandler(LOGGING_FILE),
             logging.StreamHandler()
         ]
     )
-   
-    # Pass the exchange to UserInterface
-    ui = UserInterface(exchange, logging)
-    await ui.main()  # Await the main loop of UserInterface
+    
+    try:
+        # Initialize the exchange object (e.g., Bitget)
+        exchange = ccxt.bitget({
+            "apiKey": os.getenv("BITGET_API_KEY"),
+            "secret": os.getenv("BITGET_API_SECRET"),
+            "password": os.getenv("BITGET_API_PASSPHRASE")  # Optional
+        })
+        
+        exchange.load_markets()  # Pre-load market data to avoid runtime delays
+        logging.info("Exchange initialized and markets loaded successfully.")
+    except Exception as e:
+        logging.error(f"Failed to initialize exchange: {e}")
+        return
+
+    
+
+    # Pass the exchange to UserInterface and launch the app
+    try:
+        ui = UserInterface(exchange, logging)
+        await ui.main()
+    except Exception as e:
+        logging.error(f"Application error: {e}")
+    finally:
+        logging.info("Shutting down application.")
+
 
 def main():
-    # Check if there's an existing running event loop
     try:
-        asyncio.run(async_main())  # Try to start the async_main coroutine
+        asyncio.run(async_main())  # Launch the application
     except RuntimeError as e:
         if "asyncio.run() cannot be called from a running event loop" in str(e):
-            # Handle nested loops by creating tasks instead
             loop = asyncio.get_event_loop()
-            loop.create_task(async_main())
-            loop.run_forever()
+            loop.run_until_complete(async_main())
+
 
 if __name__ == "__main__":
     main()
