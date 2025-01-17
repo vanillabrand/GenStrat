@@ -3,11 +3,10 @@ from typing import Dict, List
 import redis
 import asyncio
 
-
 class TradeManager:
     """
     Manages the lifecycle of trades, including recording, updating, retrieving, transitioning,
-    and closing trades. Supports handling both pending and active trades with advanced states.
+    archiving, and closing trades. Supports handling both pending and active trades with advanced states.
     """
 
     def __init__(self, redis_host="localhost", redis_port=6379, redis_db=0):
@@ -100,20 +99,22 @@ class TradeManager:
         """
         self.transition_trade(trade_id, "active_trades", "closed_trades", "closed")
 
-    def transition_to_fallback(self, trade_id: str):
+    def archive_trade(self, trade_id: str):
         """
-        Marks a trade as having executed a fallback to market order.
+        Archives a trade and removes it from active storage.
         """
         key = f"trade:{trade_id}"
+        archive_key = f"archive:trade:{trade_id}"
         try:
             if self.redis_client.exists(key):
-                self.redis_client.hset(key, "fallback_executed", True)
-                self.redis_client.hset(key, "status", "fallback")
-                self.logger.info(f"Trade {trade_id} transitioned to fallback.")
+                trade_data = self.redis_client.hgetall(key)
+                self.redis_client.set(archive_key, json.dumps(trade_data))
+                self.redis_client.delete(key)
+                self.logger.info(f"Trade {trade_id} archived successfully.")
             else:
                 self.logger.error(f"Trade ID '{trade_id}' does not exist.")
         except Exception as e:
-            self.logger.error(f"Failed to transition trade {trade_id} to fallback: {e}")
+            self.logger.error(f"Failed to archive trade {trade_id}: {e}")
 
     ### --- Trade Retrieval and Monitoring ---
 

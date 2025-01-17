@@ -1,137 +1,177 @@
-import asyncio
 import logging
-from trade_suggestion_manager import TradeSuggestionManager
+import redis
+import json
+import asyncio
+from typing import List, Dict, Optional, Any
 
 
-class TradeMonitor:
+class TradeManager:
     """
-    Monitors active trades and validates trade conditions.
+    Manages the lifecycle of trades, including recording, updating, retrieving, transitioning,
+    archiving, and revalidating trades. Supports handling both pending and active trades.
     """
 
-    def __init__(self, trade_manager, trade_executor, performance_manager, strategy_manager, risk_manager):
+    def __init__(self, redis_host="localhost", redis_port=6379, redis_db=0, trade_suggestion_manager=None):
+        self.redis_client = redis.StrictRedis(
+            host=redis_host, port=redis_port, db=redis_db, decode_responses=True
+        )
         self.logger = logging.getLogger(self.__class__.__name__)
-        self.trade_manager = trade_manager
-        self.trade_executor = trade_executor
-        self.performance_manager = performance_manager
-        self.strategy_manager = strategy_manager
-        self.risk_manager = risk_manager
-        self.trade_suggestion_manager = TradeSuggestionManager()  # OpenAI integration
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        self.trade_suggestion_manager = trade_suggestion_manager
+        self.market_monitor = None  # Set by MarketMonitor later
 
-    async def monitor_active_trades(self):
-        """Main loop to monitor and update active trades."""
-        while True:
-            try:
-                active_trades = self.trade_manager.get_active_trades()
-                if not active_trades:
-                    self.logger.info("No active trades to monitor.")
-                for trade in active_trades:
-                    await self.check_trade_conditions(trade)
-            except Exception as e:
-                self.logger.error(f"Error monitoring trades: {e}")
-            await asyncio.sleep(5)
+    ### --- Trade Recording and Retry Management ---
 
-    async def monitor_strategy(self, strategy):
+    def record_trade(self, trade_data: Dict):
         """
-        Monitors entry and exit conditions for a strategy and executes or closes trades accordingly.
+        Records a new trade and sets its initial status.
         """
         try:
-            strategy_data = self.strategy_manager.get_strategy_data(strategy["id"])
-            assets = strategy_data.get("assets", [])
-            if not assets:
-                self.logger.warning(f"Strategy '{strategy['title']}' has no assets to monitor.")
-                return
-
-            for asset in assets:
-                market_data = await self.fetch_market_data(asset)
-
-                # Generate trades using OpenAI
-                suggested_trades = self.trade_suggestion_manager.generate_trades(strategy_data, market_data)
-                for trade_details in suggested_trades:
-                    if self.risk_manager.validate_trade(
-                        strategy_name=strategy["title"],
-                        account_balance=self.trade_executor.get_available_balance(asset),
-                        entry_price=trade_details["price"],
-                        stop_loss=trade_details["stop_loss"]
-                    ):
-                        await self.trade_executor.execute_trade(strategy["title"], trade_details)
-
-                # Monitor exit conditions
-                active_trade = self.trade_manager.get_active_trade(strategy["id"], asset)
-                if active_trade and self.evaluate_conditions(strategy_data["conditions"]["exit"], market_data):
-                    await self.trade_executor.close_trade(active_trade)
+            trade_id = trade_data["trade_id"]
+            key = f"trade:{trade_id}"
+            trade_data["status"] = "pending"
+            trade_data.setdefault("retry_count", 0)
+            trade_data.setdefault("fallback_executed", False)
+            self.redis_client.hmset(key, trade_data)
+            self.redis_client.sadd("pending_trades", trade_id)
+            self.logger.info(f"Recorded new trade: {trade_id}")
         except Exception as e:
-            self.logger.error(f"Error monitoring strategy '{strategy['title']}': {e}")
+            self.logger.error(f"Failed to record trade: {e}")
 
-    async def check_trade_conditions(self, trade):
+    def add_failed_trade(self, trade_data: Dict):
         """
-        Checks conditions for an active trade.
+        Adds a failed trade back to the pending queue for retry.
         """
         try:
-            market_data = await self.fetch_market_data(trade["asset"])
-            if not market_data:
-                self.logger.warning(f"No market data available for trade {trade['trade_id']}. Skipping.")
-                return
-
-            entry_price = float(trade.get("entry_price", 0))
-            stop_loss = float(trade.get("stop_loss", 0))
-            take_profit = float(trade.get("take_profit", 0))
-
-            # Check stop-loss
-            if stop_loss and market_data["price"] <= stop_loss:
-                self.logger.info(f"Trade {trade['trade_id']} hit stop-loss at {market_data['price']}.")
-                await self.trade_executor.close_trade(trade["trade_id"], "stop_loss")
-                return
-
-            # Check take-profit
-            if take_profit and market_data["price"] >= take_profit:
-                self.logger.info(f"Trade {trade['trade_id']} hit take-profit at {market_data['price']}.")
-                await self.trade_executor.close_trade(trade["trade_id"], "take_profit")
-                return
-
-            self.logger.debug(f"Trade {trade['trade_id']} remains active.")
+            trade_id = trade_data["trade_id"]
+            trade_data["status"] = "pending"
+            trade_data["retry_count"] += 1
+            self.redis_client.hmset(f"trade:{trade_id}", trade_data)
+            self.redis_client.sadd("pending_trades", trade_id)
+            self.logger.warning(f"Requeued failed trade: {trade_id}. Retry count: {trade_data['retry_count']}")
         except Exception as e:
-            self.logger.error(f"Error checking conditions for trade {trade['trade_id']}: {e}")
+            self.logger.error(f"Failed to requeue trade {trade_id}: {e}")
 
-    async def fetch_market_data(self, asset):
+    ### --- Trade State Management ---
+
+    def transition_to_active(self, trade_id: str):
         """
-        Fetches live market data for a given asset.
+        Moves a trade from pending to active status.
+        """
+        self.transition_trade(trade_id, "pending_trades", "active_trades", "active")
+
+    def transition_to_closed(self, trade_id: str):
+        """
+        Moves a trade to the closed state.
+        """
+        self.transition_trade(trade_id, "active_trades", "closed_trades", "closed")
+
+    def transition_trade(self, trade_id: str, from_set: str, to_set: str, new_status: str):
+        """
+        Transitions a trade between Redis sets and updates its status.
+        """
+        key = f"trade:{trade_id}"
+        try:
+            if self.redis_client.exists(key):
+                self.redis_client.srem(from_set, trade_id)
+                self.redis_client.sadd(to_set, trade_id)
+                self.redis_client.hset(key, "status", new_status)
+                self.logger.info(f"Trade {trade_id} transitioned to {new_status}.")
+            else:
+                self.logger.error(f"Trade ID '{trade_id}' does not exist.")
+        except Exception as e:
+            self.logger.error(f"Failed to transition trade {trade_id} from {from_set} to {to_set}: {e}")
+
+    ### --- Pending Trades Management ---
+
+    def get_pending_trades(self) -> List[Dict]:
+        """
+        Retrieves all pending trades from the database.
         """
         try:
-            market_data = await self.trade_executor.fetch_market_data(asset)
-            self.logger.debug(f"Market data for {asset}: {market_data}")
-            return market_data
+            trade_ids = self.redis_client.smembers("pending_trades")
+            trades = [self.redis_client.hgetall(f"trade:{trade_id}") for trade_id in trade_ids]
+            self.logger.info(f"Retrieved {len(trades)} pending trades.")
+            return trades
         except Exception as e:
-            self.logger.error(f"Error fetching market data for {asset}: {e}")
-            return {}
+            self.logger.error(f"Failed to retrieve pending trades: {e}")
+            return []
 
-    def evaluate_conditions(self, conditions, market_data):
+    def retry_pending_trades(self):
         """
-        Evaluates entry or exit conditions from the strategy JSON.
+        Retries all pending trades that have failed or require reprocessing.
         """
         try:
-            for condition in conditions:
-                indicator = condition["indicator"]
-                operator = condition["operator"]
-                value = float(condition["value"])
-                current_value = market_data.get(indicator)
-
-                if current_value is None or not self.compare(operator, current_value, value):
-                    return False
-            return True
+            pending_trades = self.get_pending_trades()
+            for trade in pending_trades:
+                retry_count = int(trade.get("retry_count", 0))
+                if retry_count >= 3:
+                    self.logger.warning(f"Trade {trade['trade_id']} exceeded max retries. Archiving trade.")
+                    self.transition_to_closed(trade["trade_id"])
+                else:
+                    self.logger.info(f"Retrying trade {trade['trade_id']} (Retry count: {retry_count}).")
+                    self.add_failed_trade(trade)
         except Exception as e:
-            self.logger.error(f"Error evaluating conditions: {e}")
-            return False
+            self.logger.error(f"Error retrying pending trades: {e}")
 
-    @staticmethod
-    def compare(operator, current_value, target_value):
+    ### --- Trade Retrieval and Monitoring ---
+
+    def get_active_trades(self, strategy_id: Optional[str] = None) -> List[Dict]:
         """
-        Compares two values based on the specified operator.
+        Retrieves all active trades from the database. Filters by strategy_id if provided.
         """
-        operators = {
-            ">": lambda x, y: x > y,
-            "<": lambda x, y: x < y,
-            ">=": lambda x, y: x >= y,
-            "<=": lambda x, y: x <= y,
-            "==": lambda x, y: x == y,
-        }
-        return operators[operator](current_value, target_value)
+        try:
+            pattern = f"trade:{strategy_id}:*" if strategy_id else "trade:*"
+            trade_keys = self.redis_client.keys(pattern)
+            trades = [json.loads(self.redis_client.get(key)) for key in trade_keys]
+            self.logger.info(f"Retrieved {len(trades)} active trades.")
+            return trades
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve active trades: {e}")
+            return []
+
+    ### --- MarketMonitor Integration ---
+
+    def set_market_monitor(self, market_monitor):
+        """
+        Links MarketMonitor to TradeManager for trade updates.
+        """
+        self.market_monitor = market_monitor
+        self.logger.info("MarketMonitor linked to TradeManager.")
+
+    ### --- Trade Synchronization and Revalidation ---
+
+    async def revalidate_trades(self, strategy_json: Dict[str, Any], market_data: Dict[str, Any], budget: float):
+        """
+        Periodically synchronizes active trades with OpenAI suggestions and market conditions.
+        """
+        strategy_id = strategy_json["strategy_name"]
+        active_trades = self.get_active_trades(strategy_id)
+
+        # Generate new trade suggestions
+        new_trades = self.trade_suggestion_manager.generate_trades(strategy_json, market_data, budget)
+
+        # Synchronize trades
+        updated_trades = []
+        for new_trade in new_trades:
+            for active_trade in active_trades:
+                if active_trade["trade_id"] == new_trade["trade_id"]:
+                    # Update trade if needed
+                    if active_trade != new_trade:
+                        self.logger.info(f"Updating trade: {new_trade['trade_id']}")
+                        self.save_trade(new_trade, strategy_id)
+                        updated_trades.append(new_trade)
+                    break
+            else:
+                # Add new trade
+                self.logger.info(f"Adding new trade: {new_trade['trade_id']}")
+                self.save_trade(new_trade, strategy_id)
+                updated_trades.append(new_trade)
+
+        # Archive removed trades
+        removed_trades = [trade for trade in active_trades if trade not in updated_trades]
+        self.archive_trades(strategy_id, removed_trades)
+
+        # Notify MarketMonitor
+        if self.market_monitor:
+            self.market_monitor.on_trades_updated(strategy_id, updated_trades)

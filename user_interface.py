@@ -37,7 +37,7 @@ class UserInterface:
         self.trade_manager = TradeManager(self.exchange, self.budget_manager, self.risk_manager)
         self.performance_manager = PerformanceManager(self.trade_manager)
         self.strategy_manager = StrategyManager(self.trade_manager)
-        self.trade_suggest = TradeSuggestionManager(os.getenv("OPENAI_API_KEY"))
+        self.trade_suggest = TradeSuggestionManager(os.getenv("OPENAI_API_KEY"), self.trade_manager)
         
         self.trade_executor = TradeExecutor(self.exchange, self.trade_manager, self.budget_manager)       
         self.market_monitor = MarketMonitor(exchange, self.strategy_manager, self.trade_manager, self.trade_executor, self.budget_manager, self.trade_suggest)
