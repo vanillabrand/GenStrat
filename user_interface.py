@@ -17,38 +17,78 @@ from strategy_interpreter import StrategyInterpreter
 from market_monitor import MarketMonitor
 from trade_executor import TradeExecutor
 from trade_suggestion_manager import TradeSuggestionManager  
+from typing import Any, Optional
 
 
 class UserInterface:
-    """
-    Handles terminal-based interaction for managing trading strategies, budgets, risk levels, and performance metrics.
-    """
+    """Handles terminal-based interaction for managing trading strategies."""
 
-    def __init__(self, exchange, logger):
-        self.logger = logger
+    def __init__(self, exchange: Any, logger: Optional[logging.Logger] = None):
+        self.logger = logger or logging.getLogger(__name__)
         self.console = Console()
         self.layout = Layout()
         self.exchange = exchange
 
-        # Initialize managers and the dashboardß
+        # Initialize managers in dependency order
         self.risk_manager = RiskManager()
         self.budget_manager = BudgetManager()
-       
-        self.trade_manager = TradeManager(self.exchange, self.budget_manager, self.risk_manager)
+        self.trade_manager = TradeManager()
+        
         self.performance_manager = PerformanceManager(self.trade_manager)
         self.strategy_manager = StrategyManager(self.trade_manager)
-        self.trade_suggest = TradeSuggestionManager(os.getenv("OPENAI_API_KEY"), self.trade_manager)
         
-        self.trade_executor = TradeExecutor(self.exchange, self.trade_manager, self.budget_manager)       
-        self.market_monitor = MarketMonitor(exchange, self.strategy_manager, self.trade_manager, self.trade_executor, self.budget_manager, self.trade_suggest)
-        self.dashboard = Dashboard(exchange, self.strategy_manager, self.performance_manager, self.market_monitor, self.performance_manager)
-       
+        # Initialize trading components
+        self.trade_suggestion_manager = TradeSuggestionManager(
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            trade_manager=self.trade_manager
+        )
+        
+        self.trade_executor = TradeExecutor(
+            exchange=self.exchange,
+            trade_manager=self.trade_manager,
+            budget_manager=self.budget_manager
+        )
+        
+        self.market_monitor = MarketMonitor(
+            exchange=self.exchange,
+            strategy_manager=self.strategy_manager,
+            trade_manager=self.trade_manager, 
+            trade_executor=self.trade_executor,
+            budget_manager=self.budget_manager,
+            trade_suggestion_manager=self.trade_suggestion_manager
+        )
+
+        # Initialize dashboard last since it depends on other components
+        self.dashboard = Dashboard(
+            strategy_manager=self.strategy_manager,
+            trade_manager=self.trade_manager,
+            performance_manager=self.performance_manager
+        )
         # Link dependencies
       
         self.market_monitor.dashboard = self.dashboard
         self.strategy_manager.set_monitoring(self.market_monitor)
-        self.backtester = Backtester(self.strategy_manager, self.budget_manager, self.risk_manager, self.trade_suggest)
+        self.backtester = Backtester(self.strategy_manager, self.budget_manager, self.risk_manager, self.trade_suggestion_manager)
         self.configure_layout()
+
+    async def start(self):
+            """Start the user interface and dashboard."""
+            try:
+                await self.dashboard.start()
+            except Exception as e:
+                self.logger.error(f"Failed to start UI: {str(e)}")
+                raise
+
+    async def stop(self):
+        """Clean shutdown of all components."""
+        try:
+            await self.trade_executor.stop()
+            await self.market_monitor.stop()
+            # Add other cleanup tasks as needed
+        except Exception as e:
+            self.logger.error(f"Error during shutdown: {str(e)}")
+            raise
+                        
     def configure_layout(self):
         """Configures the rich layout for the application."""
         self.layout.split(
@@ -116,7 +156,7 @@ class UserInterface:
             "6": self.deactivate_strategy,  # Link to Deactivate Strategy
             "7": self.remove_strategy,  # Link to Remove Strategy
             "8": self.view_performance_metrics,
-            "9": self.run_backtests,
+            "9": self.run_backtest,
             "10": self.run_scenario_tests,  # Link to Scenario Testing
             "11": self.view_dashboard,
             "12": self.exit_program,
@@ -305,18 +345,16 @@ class UserInterface:
             strategy_data = self.strategy_manager.load_strategy(strategy_id)
             assets = strategy_data.get("assets", [])
             market_data = {
-                asset: await self.trade_suggest.fetch_market_data(asset, strategy_data["market_type"], self.exchange)
+                asset: await self.trade_suggestion_manager.fetch_market_data(asset, strategy_data["market_type"], self.exchange)
                 for asset in assets
             }
 
+            self.console.print(f"Market Data {market_data}")
+
             # Generate trades with budget allocation
-            suggested_trades = self.trade_suggest.generate_trades(strategy_data, market_data, budget)
+            suggested_trades = self.trade_suggestion_manager.generate_trades(strategy_data, market_data, budget)
 
-            for trade_details in suggested_trades:
-                # Validate and execute trades
-                if self.trade_executor.validate_and_execute_trade(strategy["title"], trade_details):
-                    self.logger.info(f"Trade executed for asset {trade_details['asset']} under strategy '{strategy['title']}'.")
-
+    
             self.console.print(f"[bold green]Strategy '{strategy['title']}' activated and trades generated.[/bold green]")
 
         except Exception as e:
@@ -360,7 +398,7 @@ class UserInterface:
             self.logger.error(f"Failed to view performance metrics: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
-    async def run_backtests(self):
+    async def run_backtest(self):
         """
         Prompts the user to run a backtest, including budget allocation.
         """

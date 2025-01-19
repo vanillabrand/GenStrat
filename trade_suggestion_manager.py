@@ -1,7 +1,8 @@
 import openai
 import json
 import logging
-from typing import Dict
+from typing import Dict, List
+
 
 class TradeSuggestionManager:
     """
@@ -14,27 +15,34 @@ class TradeSuggestionManager:
         openai.api_key = openai_api_key
         self.trade_manager = trade_manager  # Integration with TradeManager
 
-    async def fetch_market_data(self, asset, market_type, exchange):
+    async def fetch_market_data(self, assets: List[str], market_type: str, exchange) -> Dict[str, Dict]:
         """
-        Fetches the required market data for an asset.
+        Fetches market data for multiple assets.
         """
+        market_data = {}
         try:
-            ticker = await exchange.fetch_ticker(asset)
-            leverage_info = await exchange.fetch_markets()
-            leverage_data = next((market for market in leverage_info if market['symbol'] == asset), {})
+            for asset in assets:
+                try:
+                    ticker = await exchange.fetch_ticker(asset)
+                    leverage_info = await exchange.fetch_markets()
+                    leverage_data = next((market for market in leverage_info if market['symbol'] == asset), {})
+                    
+                    market_data[asset] = {
+                        "current_price": ticker["last"],
+                        "high": ticker["high"],
+                        "low": ticker["low"],
+                        "volume": ticker["baseVolume"],
+                        "leverage": leverage_data.get("leverage", None),  # Max leverage if available
+                        "market_type": market_type,
+                    }
+                except Exception as asset_error:
+                    self.logger.warning(f"Failed to fetch market data for {asset}: {asset_error}")
+                    market_data[asset] = {}  # Ensure asset has an entry even if data is missing
 
-            market_data = {
-                "current_price": ticker["last"],
-                "high": ticker["high"],
-                "low": ticker["low"],
-                "volume": ticker["baseVolume"],
-                "leverage": leverage_data.get("leverage", None),  # Max leverage if available
-                "market_type": market_type
-            }
-            self.logger.info(f"Market data fetched for {asset}: {market_data}")
+            self.logger.info(f"Fetched market data for assets: {market_data.keys()}")
             return market_data
         except Exception as e:
-            self.logger.error(f"Failed to fetch market data for {asset}: {e}")
+            self.logger.error(f"Failed to fetch market data: {e}")
             return {}
 
     def create_prompt(self, strategy_json, market_data, budget):
@@ -63,25 +71,23 @@ class TradeSuggestionManager:
         - `trade_type`: Either 'long' or 'short'.
         - `amount`: The position size.
         - `budget_allocation`: The portion of the budget allocated to this trade.
-        - `price`: The target entry price.
-        - `stop_loss`: Stop-loss price as per strategy risk management.
-        - `take_profit`: Take-profit price as per strategy reward target.
-        - `leverage`: Leverage amount (if applicable).
+        - `price`: The target entry price based on the strategy. If not applicable, set to 0.
+        - `stop_loss`: Stop-loss price as per strategy risk management. If not applicable, set to 0.
+        - `take_profit`: Take-profit price as per strategy reward target. If not applicable, set to 0.
+        - `leverage`: Leverage amount (if applicable). Be aware of the leverage limits on Bitget.
         - `market_type`: Spot, futures, or margin.
         - `status`: Initially set to 'pending'.
+        - `order_type`: Market, limit, stop, stop-limit.
 
         ### Instructions:
         - Allocate portions of the total budget across trades.
         - Ensure budget allocations are reasonable and do not exceed the total budget.
-        - RESPOND ONLY with a JSON array of trades that, no other information required.
-
-        Respond with the JSON array of trades.
+        - Respond only with a JSON array of trades.
         """
 
     def generate_trades(self, strategy_json, market_data, budget):
         """
-        Sends strategy JSON, market data, and budget to OpenAI to generate trade suggestions.
-        Stores valid trades into TradeManager.
+        Generates and validates trades, ensuring they align with exchange requirements before storing.
         """
         try:
             prompt = self.create_prompt(strategy_json, market_data, budget)
@@ -92,96 +98,64 @@ class TradeSuggestionManager:
                     {"role": "user", "content": prompt}
                 ]
             )
-            self.logger.debug(f"Raw API response: {response}")
+            self.logger.debug(f"Raw OpenAI response: {response}")
 
-            # Validate response structure
-            if "choices" in response and response["choices"]:
-                content = response["choices"][0].get("message", {}).get("content", "")
-                if not content:
-                    self.logger.error("No content in API response.")
-                    return []
-                try:
-                    trades = json.loads(content)
-                except json.JSONDecodeError as e:
-                    self.logger.error(f"Error decoding JSON from OpenAI response: {e}")
-                    return []
+            content = response["choices"][0]["message"]["content"]
+            trades = json.loads(content)
+            valid_trades = []
 
-                # Validate and store trades
-                valid_trades = []
-                for trade in trades:
-                    if self.validate_trade_format(trade):
-                        self.trade_manager.record_trade(trade)
-                        valid_trades.append(trade)
-                    else:
-                        self.logger.warning(f"Invalid trade format: {trade}")
+            for trade in trades:
+                processed_trade = self.process_trade_for_storage(trade, market_data)
+                if processed_trade and self.validate_trade_format(processed_trade):
+                    self.trade_manager.record_trade(processed_trade)
+                    valid_trades.append(processed_trade)
+                else:
+                    self.logger.warning(f"Invalid or unprocessable trade: {trade}")
 
-                self.logger.info(f"Generated and validated trades: {valid_trades}")
-                return valid_trades
-            else:
-                self.logger.error("Unexpected API response format: No 'choices' found.")
-                return []
-        except openai.error.OpenAIError as e:
-            self.logger.error(f"OpenAI API error: {e}")
-            return []
+            self.logger.info(f"Generated and validated trades: {valid_trades}")
+            return valid_trades
         except Exception as e:
-            self.logger.error(f"Unhandled error generating trades: {e}")
+            self.logger.error(f"Error generating trades: {e}")
             return []
 
     def validate_trade_format(self, trade):
         """
-        Validates the format of a trade dictionary.
+        Validates the format of a trade dictionary based on its order type and other contextual parameters.
         """
         required_fields = [
-            "trade_id", "strategy_name", "asset", "side", "trade_type", "amount", 
-            "budget_allocation", "price", "stop_loss", "take_profit", "leverage", "market_type", "status"
+            "trade_id", "strategy_name", "asset", "side", "trade_type", "order_type",
+            "amount", "budget_allocation", "market_type", "status"
         ]
+        numeric_fields = ["amount", "budget_allocation", "stop_loss", "take_profit", "leverage"]
+
         try:
             for field in required_fields:
                 if field not in trade:
                     raise ValueError(f"Missing required field: {field}")
-            if trade["trade_type"] not in ["long", "short"]:
-                raise ValueError(f"Invalid trade_type: {trade['trade_type']}")
+
+            # Validate numeric fields
+            for field in numeric_fields:
+                if field in trade and not isinstance(trade[field], (int, float)):
+                    raise ValueError(f"Invalid value for {field}: {trade[field]}")
+
             return True
         except Exception as e:
             self.logger.error(f"Trade validation error: {e}")
             return False
 
-    def revalidate_trades(self, strategy_id: str, market_data: Dict[str, Dict]):
+    def process_trade_for_storage(self, trade, market_data):
         """
-        Revalidates existing trades for a given strategy and suggests updates if needed.
-        """
-        try:
-            active_trades = self.trade_manager.get_active_trades()
-            strategy_trades = [trade for trade in active_trades if trade["strategy_name"] == strategy_id]
-
-            for trade in strategy_trades:
-                asset_data = market_data.get(trade["asset"])
-                if not asset_data:
-                    self.logger.warning(f"No market data available for asset {trade['asset']}.")
-                    continue
-
-                if not self.validate_trade_against_market(trade, asset_data):
-                    self.logger.info(f"Trade {trade['trade_id']} is no longer valid. Suggesting update.")
-                    updated_trades = self.generate_trades({"id": strategy_id}, market_data, trade["budget_allocation"])
-                    return updated_trades
-        except Exception as e:
-            self.logger.error(f"Error revalidating trades for strategy '{strategy_id}': {e}")
-            return []
-
-    def validate_trade_against_market(self, trade: Dict, market_data: Dict) -> bool:
-        """
-        Validates an active trade against current market conditions.
+        Cleans and processes a trade for storage based on its order type and market data.
         """
         try:
-            current_price = market_data.get("current_price")
-            stop_loss = float(trade.get("stop_loss", 0))
-            take_profit = float(trade.get("take_profit", 0))
+            order_type = trade.get("order_type", "market")
+            if order_type in ["market", "limit", "stop", "stop-limit"]:
+                trade["price"] = trade.get("price") or market_data.get(trade["asset"], {}).get("current_price", 0)
+            if "stop_price" in trade and order_type in ["stop", "stop-limit"]:
+                if not trade.get("stop_price"):
+                    raise ValueError(f"Missing stop_price for order: {trade}")
 
-            if stop_loss and current_price <= stop_loss:
-                return False
-            if take_profit and current_price >= take_profit:
-                return False
-            return True
+            return trade
         except Exception as e:
-            self.logger.error(f"Error validating trade against market: {e}")
-            return False
+            self.logger.error(f"Error processing trade: {e}")
+            return None

@@ -1,12 +1,14 @@
+import logging
 from rich.console import Console
 from rich.table import Table
-from rich.layout import Layout
 from rich.panel import Panel
+from rich.layout import Layout
 from rich.live import Live
-from rich.text import Text
-from rich.align import Align
+from rich.progress import Progress
+import time
+from typing import Dict, List, Any
+from datetime import datetime
 import asyncio
-import logging
 import random
 import shutil
 
@@ -17,166 +19,173 @@ class Dashboard:
     Includes real-time graphs and price changes for assets in each strategy.
     """
 
-    def __init__(self, exchange, strategy_manager, trade_manager, market_monitor, performance_manager):
+    def __init__(self, strategy_manager, trade_manager, performance_manager):
         self.console = Console()
-        self.exchange = exchange
+        self.logger = logging.getLogger(__name__)
         self.strategy_manager = strategy_manager
         self.trade_manager = trade_manager
-        self.market_monitor = market_monitor
         self.performance_manager = performance_manager
-        self.logger = logging.getLogger(self.__class__.__name__)
-        self.current_page = 1  # For pagination
+        self.current_page = 0
         self.strategies_per_page = 1
+        self.live_update = None
 
-        # Initialize the layout
-        self.layout = Layout()
-        self.layout.split(
-            Layout(name="header", size=3),
-            Layout(name="body"),
-            Layout(name="footer", size=3),
-        )
-        self.layout["body"].split_column(
-            Layout(name="summary"),
-            Layout(name="details"),
-        )
-        self.init_header()
-        self.init_footer()
+    async def start(self):
+        """Initialize live dashboard"""
+        layout = self._create_layout()
+        with Live(layout, refresh_per_second=1) as live:
+            self.live_update = live
+            while True:
+                try:
+                    await self._update_dashboard(layout)
+                    await asyncio.sleep(1)
+                except KeyboardInterrupt:
+                    break
 
-    def init_header(self):
-        """Initializes the header layout."""
-        header_text = Text("GenStrat Trading Dashboard", style="bold cyan")
-        self.layout["header"].update(Panel(header_text, title="Welcome", title_align="left"))
-
-    def init_footer(self):
-        """Initializes the footer layout."""
-        footer_text = "[Press Ctrl+C to exit. Use arrow keys to navigate pages. Dashboard refreshes every 5 seconds.]"
-        self.layout["footer"].update(Panel(footer_text, style="bold green"))
-
-    def generate_summary_panel(self, strategies):
-        """
-        Generates a summary panel showing real-time performance of all strategies.
-        """
-        table = Table(title="Strategies Summary", title_style="bold cyan")
-        table.add_column("Strategy ID", justify="center", style="white")
-        table.add_column("Title", justify="left", style="magenta")
-        table.add_column("Active", justify="center", style="green")
-        table.add_column("PnL", justify="right", style="red")
-
-        for strategy in strategies:
-            pnl = self.performance_manager.calculate_summary(strategy["id"]).get("pnl", 0)
-            table.add_row(
-                strategy["id"],
-                strategy["title"],
-                "Yes" if strategy["active"] else "No",
-                f"{pnl:.2f} USDT",
-            )
-
-        return Panel(table, title="Summary")
-
-    def generate_details_panel(self, strategy, market_data):
-        """
-        Generates a detailed panel for a single strategy, including real-time graphs and price changes.
-        """
-        layout = Layout()
-
-        title = strategy["title"]
-        pnl = self.performance_manager.calculate_summary(strategy["id"]).get("pnl", 0)
-
-        # Strategy Header Panel
-        header_panel = Panel(
-            f"[bold]Title:[/bold] {title}\n"
-            f"[bold]PnL:[/bold] {pnl:.2f} USDT",
-            title=f"Strategy {strategy['id']}",
-        )
-
-        # Real-Time Graph Panel
-        graph_layout = Layout(name="graphs")
-        for asset in strategy["data"].get("assets", []):
-            asset_data = market_data.get(asset, {})
-            price_history = asset_data.get("price_history", [random.uniform(50, 150) for _ in range(10)])
-
-            graph = self.generate_graph(price_history, asset)
-            if graph:
-                graph_layout.split_row(Layout(Align.center(graph, vertical="middle")))
-
+    def _create_layout(self) -> Layout:
+        """Create dashboard layout"""
+        layout = Layout(name="root")
         layout.split_column(
-            Layout(header_panel, size=5),
-            graph_layout,
+            Layout(name="header", size=3),
+            Layout(name="main"),
+            Layout(name="footer", size=3)
         )
-
+        layout["main"].split_row(
+            Layout(name="strategy_info"),
+            Layout(name="trades")
+        )
+        layout["strategy_info"].split_column(
+            Layout(name="overview"),
+            Layout(name="performance"),
+            Layout(name="risk")
+        )
         return layout
 
-    def generate_graph(self, price_history, asset):
-        """
-        Generates an ASCII graph for asset price history, adjusting size to fit the terminal window.
-        """
-        try:
-            terminal_size = shutil.get_terminal_size((80, 20))
-            width = terminal_size.columns
-            height = terminal_size.lines // 4
+    async def _update_dashboard(self, layout: Layout):
+        """Update dashboard components"""
+        strategies = self.strategy_manager.list_strategies()
+        current_strategy = strategies[self.current_page]
+        
+        # Update strategy overview
+        layout["header"].update(
+            Panel(f"Strategy Dashboard - {current_strategy['title']} "
+                  f"({self.current_page + 1}/{len(strategies)})")
+        )
 
-            if width < 50 or height < 5:
-                self.logger.warning(f"Terminal size too small for graphs. Skipping graph for {asset}.")
-                return None
+        # Strategy Overview
+        overview = self._create_strategy_overview(current_strategy)
+        layout["overview"].update(Panel(overview, title="Strategy Overview"))
 
-            max_price = max(price_history)
-            min_price = min(price_history)
+        # Active Trades
+        trades_table = self._create_trades_table(current_strategy['id'])
+        layout["trades"].update(Panel(trades_table, title="Active Trades"))
 
-            graph_lines = [
-                "".join(
-                    "#" if round(price) == round(val) else " "
-                    for val in range(int(min_price), int(max_price + 1))
-                )
-                for price in reversed(price_history)
-            ][:height]  # Limit graph height to fit terminal
+        # Performance Metrics
+        performance = self._create_performance_panel(current_strategy['id'])
+        layout["performance"].update(Panel(performance, title="Performance Metrics"))
 
-            graph = "\n".join(graph_lines)
-            return f"{asset} Price Graph\n{graph}"
-        except Exception as e:
-            self.logger.error(f"Failed to generate graph for {asset}: {e}")
-            return f"{asset} Graph Unavailable"
+        # Risk Analytics
+        risk = self._create_risk_panel(current_strategy['id'])
+        layout["risk"].update(Panel(risk, title="Risk Analytics"))
 
-    async def update_dashboard(self):
-        """
-        Continuously fetches and updates live data on the dashboard in batches.
-        """
-        try:
-            # Fetch strategies and market data
-            strategies = self.strategy_manager.list_strategies()
-            active_trades = self.trade_manager.get_active_trades()
-            assets = list({trade["asset"] for trade in active_trades})
-            market_data = await self.market_monitor.get_current_market_data(assets)
+        # Controls
+        controls = self._create_controls()
+        layout["footer"].update(controls)
 
-            # Pagination Logic
-            total_pages = (len(strategies) + self.strategies_per_page - 1) // self.strategies_per_page
-            if self.current_page > total_pages:
-                self.current_page = total_pages
-            if self.current_page < 1:
-                self.current_page = 1
+    def _create_strategy_overview(self, strategy: Dict) -> Table:
+        """Create strategy overview table"""
+        table = Table(show_header=False)
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="green")
+        
+        table.add_row("Status", "🟢 Active" if strategy['active'] else "🔴 Inactive")
+        table.add_row("Market Type", strategy['market_type'])
+        table.add_row("Assets", ", ".join(strategy['assets']))
+        table.add_row("Created", strategy['created_at'])
+        table.add_row("Last Updated", strategy['updated_at'])
+        
+        return table
 
-            start_index = (self.current_page - 1) * self.strategies_per_page
-            end_index = start_index + self.strategies_per_page
+    def _create_trades_table(self, strategy_id: str) -> Table:
+        """Create active trades table"""
+        table = Table()
+        table.add_column("ID", style="cyan")
+        table.add_column("Asset", style="green")
+        table.add_column("Type", style="magenta")
+        table.add_column("Entry", style="yellow")
+        table.add_column("Current", style="yellow")
+        table.add_column("P&L", style="red" if float < 0 else "green")
+        table.add_column("Status", style="blue")
+        
+        trades = self.trade_manager.get_strategy_trades(strategy_id)
+        for trade in trades:
+            pnl = self._calculate_pnl(trade)
+            table.add_row(
+                trade['id'][:8],
+                trade['asset'],
+                trade['type'],
+                f"${trade['entry_price']:.2f}",
+                f"${trade['current_price']:.2f}",
+                f"{pnl:.2f}%",
+                trade['status']
+            )
+        
+        return table
 
-            summary_panel = self.generate_summary_panel(strategies)
-            details_panel = self.generate_details_panel(strategies[start_index], market_data)
+    def _create_performance_panel(self, strategy_id: str) -> Table:
+        """Create performance metrics panel"""
+        metrics = self.performance_manager.get_metrics(strategy_id)
+        table = Table(show_header=False)
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="green")
+        
+        table.add_row("Total P&L", f"${metrics['total_pnl']:.2f}")
+        table.add_row("Win Rate", f"{metrics['win_rate']:.1f}%")
+        table.add_row("Avg Trade", f"${metrics['avg_trade']:.2f}")
+        table.add_row("Sharpe Ratio", f"{metrics['sharpe_ratio']:.2f}")
+        table.add_row("Max Drawdown", f"{metrics['max_drawdown']:.1f}%")
+        
+        return table
 
-            self.layout["summary"].update(summary_panel)
-            self.layout["details"].update(details_panel)
+    def _create_risk_panel(self, strategy_id: str) -> Table:
+        """Create risk analytics panel"""
+        risk_metrics = self.performance_manager.get_risk_metrics(strategy_id)
+        table = Table(show_header=False)
+        table.add_column("Metric", style="cyan")
+        table.add_column("Value", style="green")
+        
+        table.add_row("Open Risk", f"${risk_metrics['open_risk']:.2f}")
+        table.add_row("Used Margin", f"${risk_metrics['used_margin']:.2f}")
+        table.add_row("Free Margin", f"${risk_metrics['free_margin']:.2f}")
+        table.add_row("Margin Level", f"{risk_metrics['margin_level']:.1f}%")
+        
+        return table
 
-            self.logger.info("Dashboard updated.")
-        except Exception as e:
-            self.logger.error(f"Error updating dashboard: {e}")
+    def _create_controls(self) -> Panel:
+        """Create control panel"""
+        controls = [
+            "[cyan]←/→[/cyan] Navigate Strategies",
+            "[cyan]Space[/cyan] Toggle Strategy",
+            "[cyan]C[/cyan] Close All Trades",
+            "[cyan]Q[/cyan] Quit"
+        ]
+        return Panel(" | ".join(controls), title="Controls")
 
-    async def run(self):
-        """Runs the dashboard in a loop."""
-        try:
-            with Live(self.layout, refresh_per_second=1, console=self.console):
-                while True:
-                    await self.update_dashboard()
-                    await asyncio.sleep(5)
-        except asyncio.CancelledError:
-            self.logger.info("Dashboard loop cancelled.")
-        except KeyboardInterrupt:
-            self.console.print("\n[bold red]Dashboard stopped.[/bold red]")
-        except Exception as e:
-            self.logger.error(f"Unexpected error in dashboard loop: {e}")
+    async def handle_input(self, key: str):
+        """Handle user input"""
+        if key == "right":
+            self.current_page = (self.current_page + 1) % len(self.strategy_manager.list_strategies())
+        elif key == "left":
+            self.current_page = (self.current_page - 1) % len(self.strategy_manager.list_strategies())
+        elif key == "space":
+            strategy = self.strategy_manager.list_strategies()[self.current_page]
+            await self.strategy_manager.toggle_strategy(strategy['id'])
+        elif key == "c":
+            strategy = self.strategy_manager.list_strategies()[self.current_page]
+            await self.trade_manager.close_all_strategy_trades(strategy['id'])
+
+    def _calculate_pnl(self, trade: Dict) -> float:
+        """Calculate trade P&L percentage"""
+        if trade['type'] == 'long':
+            return ((trade['current_price'] - trade['entry_price']) / trade['entry_price']) * 100
+        else:
+            return ((trade['entry_price'] - trade['current_price']) / trade['entry_price']) * 100

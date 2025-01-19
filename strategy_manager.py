@@ -21,6 +21,18 @@ class StrategyManager:
         self.trade_manager = trade_manager
         self.market_monitor = market_monitor
 
+    def get_active_trades(self) -> List[Dict]:
+        """
+        Retrieves all active trades from the database.
+        """
+        try:
+            trade_ids = self.redis_client.smembers("active_trades")  # Set of active trade IDs
+            trades = self._fetch_trades_by_ids(trade_ids)  # Fetch full trade details
+            return trades
+        except Exception as e:
+            self.logger.error(f"Failed to retrieve active trades: {e}")
+            return []
+
     def set_monitoring(self, market_monitor):
         """
         Sets the MarketMonitor instance for strategy monitoring.

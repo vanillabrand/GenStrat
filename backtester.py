@@ -1,4 +1,3 @@
-import backtrader as bt
 import pandas as pd
 import asciichartpy
 import logging
@@ -10,6 +9,18 @@ from typing import Dict, List, Any, Optional
 from functools import lru_cache
 from multiprocessing import Pool
 from trade_suggestion_manager import TradeSuggestionManager  # Import new manager
+import json
+import backtrader as bt
+from backtrader.analyzers import (
+    SharpeRatio,
+    DrawDown,
+    TradeAnalyzer,
+    Returns,
+    TimeReturn,
+    PositionsValue
+)
+from backtrader.feeds import PandasData
+
 
 
 class Backtester:
@@ -41,40 +52,25 @@ class Backtester:
         return bt.feeds.PandasData(dataname=historical_data)
 
     @lru_cache(maxsize=10)
-    def _load_strategy(self, strategy_id: str) -> Dict[str, Any]:
-        """
-        Loads and caches strategy data by ID.
-        """
-        strategy = self.strategy_manager.load_strategy(strategy_id)
-        if not strategy:
-            raise ValueError(f"Strategy with ID '{strategy_id}' does not exist or is empty.")
-        return strategy
-
-    def _generate_and_validate_trades(self, strategy_data: Dict[str, Any], historical_data: pd.DataFrame, budget: float):
-        """
-        Generates and validates trades using TradeSuggestionManager with budget allocation.
-        """
-        # Simulate fetching market data from historical data
-        market_data = self._simulate_market_data(historical_data)
-
-        # Generate trades with budget allocation
-        trades = self.trade_suggestion_manager.generate_trades(strategy_data, market_data, budget)
-
-        # Validate trades
-        return [
-            trade for trade in trades
-            if self._validate_trade(trade, strategy_data)
-        ]
-        
-
+    async def _load_strategy(self, strategy_id: str) -> Dict[str, Any]:
+        """Load strategy with async support."""
+        try:
+            strategy = await self.strategy_manager.load_strategy(strategy_id)
+            if not strategy:
+                raise ValueError(f"Strategy {strategy_id} not found")
+            return strategy
+        except Exception as e:
+            self.logger.error(f"Failed to load strategy: {e}")
+            raise
+    
     def generate_synthetic_data(self, scenario="sideways", timeframe="1m", duration_days=1):
         """
         Generates synthetic market data for testing based on the given scenario.
         """
         try:
             # Map timeframes to pandas frequency codes
-            frequency_map = {"1m": "T", "5m": "5T", "1h": "H", "1d": "D"}
-            freq = frequency_map.get(timeframe, "T")
+            frequency_map = {"1m": "min", "5m": "5min", "1h": "H", "1d": "D"}
+            freq = frequency_map.get(timeframe, "min")
             num_points = (duration_days * 24 * 60) // int(timeframe[:-1])
             timestamps = pd.date_range(start="2023-01-01", periods=num_points, freq=freq)
 
@@ -185,6 +181,36 @@ class Backtester:
         cerebro.addstrategy(bt_strategy)
         return cerebro
 
+    async def pre_validate_and_fetch_prices(self, strategy_id: str) -> Dict:
+        """
+        Pre-validates the strategy and fetches market data for its assets.
+        :param strategy_id: The ID of the strategy to validate.
+        :return: A dictionary with strategy JSON and enriched market data.
+        """
+        try:
+            # Load strategy
+            strategy = self._load_strategy(strategy_id)
+            assets = strategy.get("assets", [])
+            if not assets:
+                raise ValueError("Strategy has no defined assets.")
+
+            # Fetch market data for the assets
+            self.logger.info(f"Fetching market data for assets: {assets}")
+            market_data = await self.trade_generator.fetch_market_data(assets)
+            if not market_data:
+                raise ValueError("Failed to fetch market data for assets.")
+
+            # Enrich strategy data with market data
+            enriched_strategy_data = {
+                "strategy": strategy,
+                "market_data": market_data
+            }
+            self.logger.info(f"Pre-validation and market data fetch completed.")
+            return enriched_strategy_data
+        except Exception as e:
+            self.logger.error(f"Error during pre-validation: {e}")
+            raise
+
     def _prepare_parameters_from_strategy(self, strategy_data: Dict[str, Any]) -> Dict[str, Any]:
         """
         Prepares parameters from the strategy data for use in Backtrader strategies.
@@ -218,34 +244,67 @@ class Backtester:
             raise
 
         
-    def run_backtest(self, strategy_id: str, historical_data: pd.DataFrame, budget: float) -> Dict[str, Any]:
-        """
-        Runs a backtest for the provided strategy using the given historical data and budget.
-        """
+    async def run_backtest(self, strategy_id: str, historical_data: pd.DataFrame) -> Dict[str, Any]:
+        """Runs a backtest with proper async handling."""
         try:
-            # Load strategy
-            strategy_data = self._load_strategy(strategy_id)
+            # Load and validate strategy
+            strategy_data = await self._load_strategy(strategy_id)
+            if not strategy_data:
+                raise ValueError(f"Strategy {strategy_id} not found")
 
-            # Generate and validate trades
-            trades = self._generate_and_validate_trades(strategy_data, historical_data, budget)
-            self.logger.info(f"Generated trades for backtest: {trades}")
-
-            # Initialize Cerebro and run the backtest
+            # Initialize Cerebro
             cerebro = self._initialize_cerebro(historical_data, strategy_data)
+            
+            # Add analyzers
+            cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharperatio')
+            cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
+            cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
+            cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
+
+            # Run backtest
             results = cerebro.run()
+            if not results:
+                raise ValueError("Backtest produced no results")
 
-            # Summarize backtest results
-            final_value = cerebro.broker.getvalue()
-            self.logger.info(f"Backtest completed. Final portfolio value: {final_value:.2f} USDT")
+            # Process results
+            stats = self._process_results(results[0])
+            self._generate_summary_table(stats)
+            
+            return stats
 
-            return {
-                "trades": trades,
-                "final_portfolio_value": final_value,
-                "results": results
-            }
         except Exception as e:
-            self.logger.error(f"Error during backtest: {e}", exc_info=True)
+            self.logger.error(f"Backtest failed: {str(e)}", exc_info=True)
             raise
+
+    def _process_results(self, results) -> Dict[str, Any]:
+        """Process backtest results safely."""
+        try:
+            returns = results.analyzers.returns.get_analysis()
+            sharpe = results.analyzers.sharperatio.get_analysis()
+            drawdown = results.analyzers.drawdown.get_analysis()
+            trades = results.analyzers.trades.get_analysis()
+
+            stats = {
+                'initial_value': returns.get('starting', 0.0),
+                'final_value': returns.get('end', 0.0),
+                'return': ((returns.get('end', 0.0) / returns.get('starting', 1.0)) - 1) * 100,
+                'sharpe_ratio': sharpe.get('sharperatio', 0.0),
+                'max_drawdown': drawdown.get('max', {}).get('drawdown', 0.0),
+                'total_trades': trades.get('total', {}).get('total', 0),
+                'won_trades': trades.get('won', {}).get('total', 0),
+                'lost_trades': trades.get('lost', {}).get('total', 0)
+            }
+
+            if stats['total_trades'] > 0:
+                stats['win_rate'] = (stats['won_trades'] / stats['total_trades']) * 100
+            else:
+                stats['win_rate'] = 0.0
+
+            return stats
+
+        except Exception as e:
+            self.logger.error(f"Error processing results: {e}")
+            return {}       
 
     def _generate_summary_table(self, initial_value: float, final_value: float, results: List[Any]):
         """
@@ -420,4 +479,3 @@ class Backtester:
 
         return GeneratedStrategy
     
-   

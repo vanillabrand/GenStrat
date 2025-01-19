@@ -5,7 +5,9 @@ import pandas_ta as ta
 from rich.live import Live
 from rich.table import Table
 from cachetools import TTLCache
-from typing import Dict, List
+from typing import Dict, List, Any, Optional
+from datetime import datetime
+import ccxt.async_support as ccxt
 
 
 class MarketMonitor:
@@ -29,6 +31,9 @@ class MarketMonitor:
         self.monitoring_active = False
         self.balance_threshold = 50  # Minimum balance threshold to trigger warnings
         self.market_data_cache = TTLCache(maxsize=100, ttl=10)  # Cache with 10-second TTL
+        self.active_monitors: Dict[str, asyncio.Task] = {}
+        self.cache_timestamp: Optional[datetime] = None
+        self.CACHE_DURATION = 60  # seconds
 
     def create_dashboard(self):
         """
@@ -51,78 +56,59 @@ class MarketMonitor:
         Activates monitoring for a specific strategy.
         :param strategy: The strategy to monitor.
         """
-        self.logger.info(f"Activating monitoring for strategy: {strategy['title']}")
-        self.monitoring_active = True
-        asyncio.create_task(self.monitor_strategy(strategy))
+        try:
+            strategy_id = strategy['id']
+            if strategy_id in self.active_monitors:
+                self.logger.warning(f"Strategy {strategy_id} already being monitored")
+                return
+
+            monitor_task = asyncio.create_task(
+                self.monitor_strategy(strategy)
+            )
+            self.active_monitors[strategy_id] = monitor_task
+            self.logger.info(f"Activated monitoring for {strategy['title']}")
+            
+        except Exception as e:
+            self.logger.error(f"Failed to activate monitoring: {e}")
+            raise
 
     async def monitor_strategy(self, strategy):
         """
         Monitors entry and exit conditions for a strategy and executes or closes trades accordingly.
         """
         try:
-            strategy_data = self.strategy_manager.get_strategy_data(strategy["id"])
-            assets = strategy_data.get("assets", [])
-            if not assets:
-                self.logger.warning(f"Strategy '{strategy['title']}' has no assets defined.")
-                return
+            while True:
+                strategy_data = await self.strategy_manager.get_strategy_data(strategy['id'])
+                assets = strategy_data.get('assets', [])
+                
+                if not assets:
+                    self.logger.warning(f"No assets for strategy {strategy['title']}")
+                    return
 
-            # Fetch the total budget for the strategy
-            budget = self.budget_manager.get_budget(strategy["id"])
+                budget = await self.budget_manager.get_budget(strategy['id'])
+                market_data = await self.get_market_data(assets)
+                
+                await self.check_entry_conditions(strategy, market_data, budget)
+                await self.check_exit_conditions(strategy, market_data)
+                await asyncio.sleep(10)  # Polling interval
 
-            # Fetch market data
-            market_data = await self.get_current_market_data(assets)
-
-            # Generate trades with budget allocation
-            suggested_trades = self.trade_suggestion_manager.generate_trades(strategy_data, market_data, budget)
-
-            # Check if trades have budget allocations
-            all_trades_have_budget = all("budget_allocation" in trade for trade in suggested_trades)
-            if not all_trades_have_budget:
-                self.logger.warning(f"TradeSuggestionManager did not return budget allocations for some trades. Falling back to dynamic allocation.")
-
-                # Allocate budget dynamically across assets
-                asset_weights = {asset: 1 for asset in assets}  # Equal weighting for simplicity
-                self.budget_manager.allocate_budget_dynamically(budget, asset_weights)
-
-                # Assign budget allocation to trades manually
-                for trade in suggested_trades:
-                    asset = trade["asset"]
-                    trade["budget_allocation"] = self.budget_manager.get_budget(asset)
-                    self.logger.info(f"Allocated {trade['budget_allocation']:.2f} USDT to trade for asset '{asset}'.")
-
-            # Process each trade
-            for trade_details in suggested_trades:
-                allocated_budget = trade_details.get("budget_allocation", 0)
-
-                # Validate and execute trades
-                if self.trade_executor.validate_and_execute_trade(strategy["title"], trade_details):
-                    # Deduct the allocated budget
-                    if self.budget_manager.update_budget(strategy["id"], allocated_budget):
-                        self.logger.info(f"Trade executed for {trade_details['asset']} under strategy '{strategy['title']}'. Budget allocated: {allocated_budget:.2f} USDT.")
-                else:
-                    # Return unused budget if trade execution fails
-                    self.budget_manager.return_budget(strategy["id"], allocated_budget)
+        except asyncio.CancelledError:
+            self.logger.info(f"Monitoring cancelled for {strategy['title']}")
         except Exception as e:
-            self.logger.error(f"Error monitoring strategy '{strategy['title']}': {e}")
+            self.logger.error(f"Error monitoring strategy: {e}")
+            raise
 
     async def deactivate_monitoring(self, strategy_id: str):
         """
         Deactivates monitoring for a specific strategy by ID.
         """
         try:
-            active_trades = self.trade_manager.get_active_trades()
-            trades_to_unsubscribe = [trade for trade in active_trades if trade["strategy_name"] == strategy_id]
-
-            for trade in trades_to_unsubscribe:
-                asset = trade["asset"]
-                if asset in self.websocket_connections:
-                    await self.exchange.websocket_unsubscribe(asset)
-                    del self.websocket_connections[asset]
-                    self.logger.info(f"Unsubscribed from WebSocket for {asset} (Strategy ID: {strategy_id})")
-
-            self.logger.info(f"Monitoring deactivated for strategy ID '{strategy_id}'.")
+            if strategy_id in self.active_monitors:
+                self.active_monitors[strategy_id].cancel()
+                del self.active_monitors[strategy_id]
+                self.logger.info(f"Deactivated monitoring for {strategy_id}")
         except Exception as e:
-            self.logger.error(f"Failed to deactivate monitoring for strategy ID '{strategy_id}': {e}")
+            self.logger.error(f"Failed to deactivate monitoring: {e}")
 
     async def start_monitoring(self):
         """
@@ -171,26 +157,35 @@ class MarketMonitor:
             trade.get("last_action", "N/A")
         )
         
-    async def get_current_market_data(self, assets):
-        """
-        Fetches current market data for multiple assets in a batch request.
-        """
-        uncached_assets = [asset for asset in assets if asset not in self.market_data_cache]
-        if uncached_assets:
-            try:
-                market_data = await self.exchange.fetch_tickers(uncached_assets)
-                for symbol, data in market_data.items():
-                    self.market_data_cache[symbol] = {
-                        "price": data["last"],
-                        "high": data["high"],
-                        "low": data["low"],
-                        "volume": data["baseVolume"],
-                        "change_24h": data.get("percentage", 0),
-                    }
-            except Exception as e:
-                self.logger.error(f"Error fetching market data: {e}")
+    async def get_market_data(self, assets: List[str]) -> Dict:
+        """Fetch market data with caching."""
+        try:
+            current_time = datetime.now()
+            
+            if (self.cache_timestamp and 
+                (current_time - self.cache_timestamp).seconds < self.CACHE_DURATION):
+                return self.market_data_cache
 
-        return {asset: self.market_data_cache.get(asset, {}) for asset in assets}
+            market_data = {}
+            for asset in assets:
+                ticker = await self.exchange.fetch_ticker(asset)
+                ohlcv = await self.exchange.fetch_ohlcv(asset, '1m', limit=1)
+                
+                market_data[asset] = {
+                    'price': ticker['last'],
+                    'volume': ticker['baseVolume'],
+                    'high': ticker['high'],
+                    'low': ticker['low'],
+                    'ohlcv': ohlcv[0] if ohlcv else None
+                }
+
+            self.market_data_cache = market_data
+            self.cache_timestamp = current_time
+            return market_data
+
+        except Exception as e:
+            self.logger.error(f"Failed to fetch market data: {e}")
+            return {}
 
     async def fetch_exchange_balances(self) -> dict:
         """
@@ -202,6 +197,71 @@ class MarketMonitor:
         except Exception as e:
             self.logger.error(f"Failed to fetch balances: {e}")
             return {}
+
+    async def check_entry_conditions(self, strategy: Dict, 
+                                   market_data: Dict, budget: float):
+        """Check and execute entry conditions."""
+        try:
+            conditions = strategy.get('conditions', {}).get('entry', [])
+            for condition in conditions:
+                if await self._evaluate_condition(condition, market_data):
+                    await self._execute_entry_trade(strategy, market_data, budget)
+        except Exception as e:
+            self.logger.error(f"Error checking entry conditions: {e}")
+
+    async def check_exit_conditions(self, strategy: Dict, market_data: Dict):
+        """Check and execute exit conditions."""
+        try:
+            conditions = strategy.get('conditions', {}).get('exit', [])
+            active_trades = await self.trade_manager.get_active_trades(strategy['id'])
+            
+            for condition in conditions:
+                if await self._evaluate_condition(condition, market_data):
+                    for trade in active_trades:
+                        await self._execute_exit_trade(trade, market_data)
+        except Exception as e:
+            self.logger.error(f"Error checking exit conditions: {e}")
+
+    async def _evaluate_condition(self, condition: Dict, market_data: Dict) -> bool:
+        """Evaluate a trading condition."""
+        try:
+            indicator = condition.get('indicator')
+            operator = condition.get('operator')
+            value = condition.get('value')
+            asset = condition.get('asset')
+            
+            if not all([indicator, operator, value, asset]):
+                return False
+
+            current_value = await self._get_indicator_value(
+                indicator, market_data[asset]
+            )
+            
+            return self._compare_values(current_value, operator, value)
+        except Exception as e:
+            self.logger.error(f"Error evaluating condition: {e}")
+            return False
+
+    async def _get_indicator_value(self, indicator: str, market_data: Dict) -> float:
+        """Get indicator value from market data."""
+        indicators = {
+            'price': lambda x: x['price'],
+            'volume': lambda x: x['volume'],
+            'high': lambda x: x['high'],
+            'low': lambda x: x['low']
+        }
+        return indicators.get(indicator, lambda x: 0)(market_data)
+
+    def _compare_values(self, current: float, operator: str, target: float) -> bool:
+        """Compare values using specified operator."""
+        operators = {
+            '>': lambda x, y: x > y,
+            '<': lambda x, y: x < y,
+            '>=': lambda x, y: x >= y,
+            '<=': lambda x, y: x <= y,
+            '==': lambda x, y: x == y
+        }
+        return operators.get(operator, lambda x, y: False)(current, target)
 
     def evaluate_conditions(self, conditions: List[dict], asset_data: dict) -> bool:
         """
