@@ -25,11 +25,13 @@ async def async_main():
         exchange = ccxt.bitget({
             "apiKey": os.getenv("BITGET_API_KEY"),
             "secret": os.getenv("BITGET_API_SECRET"),
-            "password": os.getenv("BITGET_API_PASSPHRASE")  # Optional
+            "password": os.getenv("BITGET_API_PASSPHRASE"),
+            "enableRateLimit": True
+            
         })
         
-        exchange.load_markets()  # Pre-load market data to avoid runtime delays
-        logging.info("Exchange initialized and markets loaded successfully.")
+       # exchange.load_markets()  # Pre-load market data to avoid runtime delays
+      
     except Exception as e:
         logging.error(f"Failed to initialize exchange: {e}")
         return

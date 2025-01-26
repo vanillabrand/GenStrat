@@ -1,25 +1,42 @@
-import pandas as pd
-import asciichartpy
+# System imports
 import logging
 import random
-from rich.console import Console
-from rich.table import Table
-from rich.progress import Progress
-from typing import Dict, List, Any, Optional
+import json
+from typing import Dict, List, Any, Optional, Type
 from functools import lru_cache
 from multiprocessing import Pool
-from trade_suggestion_manager import TradeSuggestionManager  # Import new manager
-import json
+from datetime import datetime
+import asyncio
+
+# Data processing
+import pandas as pd
+import numpy as np
+
+# Trading framework
 import backtrader as bt
+from backtrader import Order
 from backtrader.analyzers import (
     SharpeRatio,
     DrawDown,
     TradeAnalyzer,
     Returns,
-    TimeReturn,
-    PositionsValue
+    TimeReturn
 )
 from backtrader.feeds import PandasData
+
+# Visualization
+import asciichartpy
+from rich.console import Console
+from rich.table import Table
+from rich.progress import Progress
+
+# Custom managers
+from trade_suggestion_manager import TradeSuggestionManager
+from strategy_manager import StrategyManager
+from budget_manager import BudgetManager
+from risk_manager import RiskManager
+
+
 
 
 
@@ -53,67 +70,60 @@ class Backtester:
 
     @lru_cache(maxsize=10)
     async def _load_strategy(self, strategy_id: str) -> Dict[str, Any]:
-        """Load strategy with async support."""
+        """
+        Loads strategy data asynchronously.
+        """
         try:
-            strategy = await self.strategy_manager.load_strategy(strategy_id)
+            strategy = self.strategy_manager.load_strategy(strategy_id)
             if not strategy:
-                raise ValueError(f"Strategy {strategy_id} not found")
+                raise ValueError(f"Strategy {strategy_id} not found.")
             return strategy
         except Exception as e:
             self.logger.error(f"Failed to load strategy: {e}")
             raise
-    
-    def generate_synthetic_data(self, scenario="sideways", timeframe="1m", duration_days=1):
-        """
-        Generates synthetic market data for testing based on the given scenario.
-        """
-        try:
-            # Map timeframes to pandas frequency codes
-            frequency_map = {"1m": "min", "5m": "5min", "1h": "H", "1d": "D"}
-            freq = frequency_map.get(timeframe, "min")
-            num_points = (duration_days * 24 * 60) // int(timeframe[:-1])
-            timestamps = pd.date_range(start="2023-01-01", periods=num_points, freq=freq)
 
-            base_price = 100
-            prices = []
-            volumes = []
+        
+    async def generate_synthetic_data(self, scenario="sideways", timeframe="1m", duration_days=1) -> pd.DataFrame:
+            """
+            Generates synthetic market data asynchronously.
+            """
+            try:
+                frequency_map = {"1m": "min", "5m": "5min","10m": "10min", "1h": "h", "1d": "D", "1w": "W"}
+                freq = frequency_map.get(timeframe, "min")
+                num_points = (duration_days * 24 * 60) // int(timeframe[:-1])
+                timestamps = pd.date_range(start="2023-01-01", periods=num_points, freq=freq)
 
-            for _ in range(num_points):
-                if scenario == "bull":
-                    base_price += random.uniform(0.1, 1)  # Gradual upward trend
-                elif scenario == "bear":
-                    base_price -= random.uniform(0.1, 1)  # Gradual downward trend
-                elif scenario == "sideways" or scenario is None:
-                    base_price += random.uniform(-0.5, 0.5)  # Random fluctuations
-                else:
-                    self.logger.warning(f"Unknown scenario '{scenario}' provided. Defaulting to 'sideways'.")
-                    base_price += random.uniform(-0.5, 0.5)
+                base_price = 100
+                prices = []
+                volumes = []
 
-                base_price = max(base_price, 1)  # Prevent negative prices
-                prices.append(base_price)
-                volumes.append(random.randint(100, 1000))
+                for _ in range(num_points):
+                    if scenario == "bull":
+                        base_price += random.uniform(0.1, 1)
+                    elif scenario == "bear":
+                        base_price -= random.uniform(0.1, 1)
+                    else:
+                        base_price += random.uniform(-0.5, 0.5)
 
-            # Generate high, low, open, close prices
-            open_prices = prices[:-1] + [prices[-1]]
-            close_prices = prices
-            high_prices = [max(o, c) + random.uniform(0, 0.5) for o, c in zip(open_prices, close_prices)]
-            low_prices = [min(o, c) - random.uniform(0, 0.5) for o, c in zip(open_prices, close_prices)]
+                    base_price = max(base_price, 1)
+                    prices.append(base_price)
+                    volumes.append(random.randint(100, 1000))
 
-            data = pd.DataFrame({
-                "timestamp": timestamps,
-                "open": open_prices,
-                "high": high_prices,
-                "low": low_prices,
-                "close": close_prices,
-                "volume": volumes,
-            })
+                data = pd.DataFrame({
+                    "timestamp": timestamps,
+                    "open": prices[:-1] + [prices[-1]],
+                    "high": [p + random.uniform(0, 0.5) for p in prices],
+                    "low": [p - random.uniform(0, 0.5) for p in prices],
+                    "close": prices,
+                    "volume": volumes,
+                })
 
-            self.logger.info(f"Synthetic data generated for scenario: {scenario}")
-            return data
+                self.logger.info(f"Synthetic data generated for scenario: {scenario}")
+                return data
 
-        except Exception as e:
-            self.logger.error(f"Error generating synthetic data: {e}")
-            raise
+            except Exception as e:
+                self.logger.error(f"Error generating synthetic data: {e}")
+                raise
 
     def _simulate_market_data(self, historical_data: pd.DataFrame) -> Dict[str, Any]:
         """
@@ -149,67 +159,179 @@ class Backtester:
             self.logger.error(f"Trade validation failed: {e}")
             return False
 
-    def _parallel_validate_trades(self, trades: List[Dict[str, Any]], strategy_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-            """
-            Validates trades in parallel.
-            """
+    def _validate_trades_parallel(self, trades: List[Dict[str, Any]], strategy_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Validate trades in parallel using process pool."""
+        try:
             with Pool(processes=4) as pool:
                 results = pool.starmap(
                     self._validate_trade,
                     [(trade, strategy_data) for trade in trades]
                 )
             return [trade for trade, valid in zip(trades, results) if valid]
+        except Exception as e:
+            self.logger.error(f"Trade validation failed: {e}")
+            return []
 
-    def _initialize_cerebro(self, historical_data: pd.DataFrame, strategy_data: Dict[str, Any]) -> bt.Cerebro:
-        """
-        Sets up and initializes the Cerebro engine.
-        """
-        cerebro = bt.Cerebro()
-        data_feed = self._validate_and_convert_data(historical_data)
-        cerebro.adddata(data_feed)
+    def _initialize_cerebro(self, historical_data: pd.DataFrame, starting_cash: float) -> bt.Cerebro:
+        """Sets up and initializes the Cerebro engine synchronously."""
+        if not isinstance(historical_data, pd.DataFrame):
+            raise ValueError("Historical data must be a pandas DataFrame")
+        
+        if not isinstance(starting_cash, (int, float)) or starting_cash <= 0:
+            raise ValueError("Starting cash must be a positive number")
+            
+        try:
+            cerebro = bt.Cerebro()
+            data_feed = self._validate_and_convert_data(historical_data)
+            cerebro.adddata(data_feed)
+            cerebro.broker.set_cash(starting_cash)
+            return cerebro
+        except Exception as e:
+            self.logger.error(f"Failed to initialize Cerebro: {e}")
+            raise
 
-        starting_cash = self.budget_manager.get_budget(strategy_data['id']) or 100000.0
-        cerebro.broker.set_cash(starting_cash)
+    async def run_backtest(self, strategy_id: str, historical_data: pd.DataFrame) -> Dict[str, Any]:
 
-        # Prepare parameters for the strategy
-        params = self._prepare_parameters_from_strategy(strategy_data)
-        bt_strategy = self._create_bt_strategy(
-            params["trade_parameters"],
-            params["entry_conditions"],
-            params["exit_conditions"]
-        )
-        cerebro.addstrategy(bt_strategy)
-        return cerebro
+            """
+            Runs a backtest with proper async handling.
+            """
+            if not strategy_id or not historical_data.size:
+                raise ValueError("Invalid strategy_id or historical_data.")
+
+            try:
+                # Pre-validate and fetch market data
+                enriched_data = await self.pre_validate_and_fetch_prices(strategy_id)
+                strategy_data = enriched_data["strategy"]
+                market_data = enriched_data["market_data"]
+
+                # Get budget and starting cash
+                budget = self.budget_manager.get_budget(strategy_id)
+                starting_cash = float(budget or 100000.0)
+
+                # Generate trade suggestions
+                trade_suggestions = await self.trade_suggestion_manager.generate_trades(
+                    strategy_json=strategy_data,
+                    market_data=market_data,
+                    budget=starting_cash,
+                )
+
+                # Validate trades in parallel
+                valid_trades = self._validate_trades_parallel(trade_suggestions, strategy_data)
+                if not valid_trades:
+                    raise ValueError("No valid trades generated.")
+
+                # Initialize and run backtest
+                cerebro = self._initialize_cerebro(historical_data, starting_cash)
+                strategy = self._create_bt_strategy(strategy_data, valid_trades)
+                cerebro.addstrategy(strategy)
+
+                # Add analyzers
+                cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name="sharperatio")
+                cerebro.addanalyzer(bt.analyzers.DrawDown, _name="drawdown")
+                cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name="trades")
+                cerebro.addanalyzer(bt.analyzers.Returns, _name="returns")
+
+                results = cerebro.run()
+                if not results:
+                    raise ValueError("Backtest produced no results.")
+
+                return self._process_results(results[0])
+
+            except Exception as e:
+                self.logger.error(f"Backtest failed: {e}")
+                raise
 
     async def pre_validate_and_fetch_prices(self, strategy_id: str) -> Dict:
-        """
-        Pre-validates the strategy and fetches market data for its assets.
-        :param strategy_id: The ID of the strategy to validate.
-        :return: A dictionary with strategy JSON and enriched market data.
-        """
+            """
+            Pre-validates the strategy and fetches market data.
+            """
+            try:
+                strategy = await self._load_strategy(strategy_id)  # Ensure this is awaited
+                assets = strategy.get("assets", [])
+
+                if not assets:
+                    raise ValueError("Strategy has no defined assets.")
+
+                market_data = {}
+                for asset in assets:
+                    try:
+                        ticker = await self.exchange.fetch_ticker(asset)
+                        market_info = await self.exchange.fetch_market(asset)
+
+                        market_data[asset] = {
+                            "ticker": ticker,
+                            "market_info": market_info,
+                            "limits": market_info.get("limits", {}),
+                            "precision": market_info.get("precision", {}),
+                        }
+
+                        await asyncio.sleep(0.1)  # Rate limiting
+
+                    except Exception as e:
+                        self.logger.error(f"Error fetching data for asset {asset}: {e}")
+                        continue
+
+                if not market_data:
+                    raise ValueError("Failed to fetch any market data.")
+
+                return {
+                    "strategy": strategy,
+                    "market_data": market_data,
+                }
+
+            except Exception as e:
+                self.logger.error(f"Pre-validation failed: {e}")
+                raise
+
+    async def _fetch_market_data(self, strategy_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Fetches market data from exchange for strategy assets."""
         try:
-            # Load strategy
-            strategy = self._load_strategy(strategy_id)
-            assets = strategy.get("assets", [])
+            # Extract assets from strategy
+            assets = strategy_data.get('assets', [])
             if not assets:
-                raise ValueError("Strategy has no defined assets.")
+                raise ValueError("No assets defined in strategy")
 
-            # Fetch market data for the assets
-            self.logger.info(f"Fetching market data for assets: {assets}")
-            market_data = await self.trade_generator.fetch_market_data(assets)
-            if not market_data:
-                raise ValueError("Failed to fetch market data for assets.")
-
-            # Enrich strategy data with market data
-            enriched_strategy_data = {
-                "strategy": strategy,
-                "market_data": market_data
+            # Initialize market data structure
+            market_data = {
+                'exchange': self.exchange,
+                'markets': {}
             }
-            self.logger.info(f"Pre-validation and market data fetch completed.")
-            return enriched_strategy_data
+
+            # Fetch data for each asset
+            for asset in assets:
+                try:
+                    # Get ticker data
+                    ticker = await self.exchange.fetch_ticker(asset)
+                    
+                    # Get market info
+                    markets = await self.exchange.fetch_markets()
+                    market_info = next((m for m in markets if m['symbol'] == asset), {})
+                    
+                    # Structure market data
+                    market_data['markets'][asset] = {
+                        'current_price': ticker['last'],
+                        'high': ticker['high'],
+                        'low': ticker['low'],
+                        'volume': ticker['baseVolume'],
+                        'limits': market_info.get('limits', {}),
+                        'precision': market_info.get('precision', {}),
+                        'market_type': market_info.get('type', 'spot'),
+                        'leverage': market_info.get('leverage', None)
+                    }
+                    
+                    # Add rate limiting delay
+                    await asyncio.sleep(0.1)
+                    
+                except Exception as e:
+                    self.logger.error(f"Error fetching data for {asset}: {e}")
+                    continue
+
+            return market_data
+
         except Exception as e:
-            self.logger.error(f"Error during pre-validation: {e}")
+            self.logger.error(f"Market data fetch failed: {e}")
             raise
+
 
     def _prepare_parameters_from_strategy(self, strategy_data: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -237,43 +359,10 @@ class Backtester:
             return {
                 "trade_parameters": trade_parameters,
                 "entry_conditions": entry_conditions,
-                "exit_conditions": exit_conditions,
+                "exit_conditions": exit_conditions
             }
         except Exception as e:
             self.logger.error(f"Error preparing parameters from strategy: {e}")
-            raise
-
-        
-    async def run_backtest(self, strategy_id: str, historical_data: pd.DataFrame) -> Dict[str, Any]:
-        """Runs a backtest with proper async handling."""
-        try:
-            # Load and validate strategy
-            strategy_data = await self._load_strategy(strategy_id)
-            if not strategy_data:
-                raise ValueError(f"Strategy {strategy_id} not found")
-
-            # Initialize Cerebro
-            cerebro = self._initialize_cerebro(historical_data, strategy_data)
-            
-            # Add analyzers
-            cerebro.addanalyzer(bt.analyzers.SharpeRatio, _name='sharperatio')
-            cerebro.addanalyzer(bt.analyzers.DrawDown, _name='drawdown')
-            cerebro.addanalyzer(bt.analyzers.TradeAnalyzer, _name='trades')
-            cerebro.addanalyzer(bt.analyzers.Returns, _name='returns')
-
-            # Run backtest
-            results = cerebro.run()
-            if not results:
-                raise ValueError("Backtest produced no results")
-
-            # Process results
-            stats = self._process_results(results[0])
-            self._generate_summary_table(stats)
-            
-            return stats
-
-        except Exception as e:
-            self.logger.error(f"Backtest failed: {str(e)}", exc_info=True)
             raise
 
     def _process_results(self, results) -> Dict[str, Any]:
@@ -304,7 +393,17 @@ class Backtester:
 
         except Exception as e:
             self.logger.error(f"Error processing results: {e}")
-            return {}       
+            return {
+                'initial_value': 0.0,
+                'final_value': 0.0,
+                'return': 0.0,
+                'sharpe_ratio': 0.0,
+                'max_drawdown': 0.0,
+                'total_trades': 0,
+                'won_trades': 0,
+                'lost_trades': 0,
+                'win_rate': 0.0
+            }
 
     def _generate_summary_table(self, initial_value: float, final_value: float, results: List[Any]):
         """
@@ -319,6 +418,7 @@ class Backtester:
         table.add_row("Net Profit/Loss", f"{final_value - initial_value:.2f} USDT")
 
         self.console.print(table)
+        
     def _plot_ascii_results(self, historical_data: pd.DataFrame):
         """
         Visualizes backtest results using ASCII with real-time updates.
@@ -337,145 +437,11 @@ class Backtester:
             self.logger.error(f"Failed to generate ASCII plot: {e}", exc_info=True)
             raise
 
-    def _create_bt_strategy(
-        self,
-        trade_parameters: Dict[str, Any],
-        entry_conditions: List[Dict[str, Any]],
-        exit_conditions: List[Dict[str, Any]]
-    ):
-        """
-        Dynamically generates a Backtrader strategy from a strategy configuration.
-        """
-
-        class GeneratedStrategy(bt.Strategy):
-            params = trade_parameters
-
-            def __init__(self):
-                self.order = None
-                self.logger = logging.getLogger(self.__class__.__name__)
-                self.conditions_cache = {}
-
-            def evaluate_conditions(self, conditions: List[Dict[str, Any]]) -> bool:
-                conditions_key = str(conditions)
-                if conditions_key in self.conditions_cache:
-                    return self.conditions_cache[conditions_key]
-
-                try:
-                    result = all(cond["value"] for cond in conditions)
-                    self.conditions_cache[conditions_key] = result
-                    return result
-                except KeyError as e:
-                    self.logger.error(f"Condition evaluation error: {e}")
-                    return False
-
-            def next(self):
-                self.logger.debug(f"Next called. Current Position: {self.position.size}")
-                self.logger.debug(f"Cash: {self.broker.get_cash()}, Value: {self.broker.get_value()}")
-
-                if not self.position:
-                    if self.evaluate_conditions(entry_conditions):
-                        size = self.params.get('position_size', 1)
-                        side = self.params.get('side', 'long')
-                        entry_price = self.data.close[0]
-                        stop_loss = self.params.get('stop_loss', None)
-
-                        if stop_loss:
-                            stop_loss_price = self.params['risk_manager'].calculate_stop_loss(entry_price, stop_loss / 100)
-
-                        if side == 'long':
-                            self.order = self.buy(size=size)
-                            self.logger.info(f"Long buy order placed. Size: {size}")
-                        elif side == 'short':
-                            self.order = self.sell(size=size)
-                            self.logger.info(f"Short sell order placed. Size: {size}")
-
-                elif self.evaluate_conditions(exit_conditions):
-                    if self.position.size > 0:
-                        self.order = self.sell(size=self.params.get('position_size', 1))
-                        self.logger.info(f"Closing long position.")
-                    elif self.position.size < 0:
-                        self.order = self.buy(size=self.params.get('position_size', 1))
-                        self.logger.info(f"Closing short position.")
-
-        return GeneratedStrategy
-    def _plot_ascii_results(self, historical_data: pd.DataFrame):
-        """
-        Visualizes backtest results using ASCII with real-time updates.
-        """
+    async def validate_strategy(self, strategy_id: str):
+        """Validate strategy with market data."""
         try:
-            closes = historical_data['close'].dropna().tolist()
-            if not closes:
-                raise ValueError("No close prices available for ASCII plotting.")
-
-            for i in range(1, len(closes) + 1):
-                ascii_chart = asciichartpy.plot(closes[:i], {"height": 20, "format": "{:>8.2f}"})
-                self.console.clear()
-                self.console.print(ascii_chart)
-
+            enriched_data = await self.backtester.pre_validate_and_fetch_prices(strategy_id)
+            return enriched_data
         except Exception as e:
-            self.logger.error(f"Failed to generate ASCII plot: {e}", exc_info=True)
+            self.logger.error(f"Strategy validation failed: {e}")
             raise
-
-    def _create_bt_strategy(
-            
-        self,
-        trade_parameters: Dict[str, Any],
-        entry_conditions: List[Dict[str, Any]],
-        exit_conditions: List[Dict[str, Any]]
-    ):
-        """
-        Dynamically generates a Backtrader strategy from a strategy configuration.
-        """
-
-        class GeneratedStrategy(bt.Strategy):
-            params = trade_parameters
-
-            def __init__(self):
-                self.order = None
-                self.logger = logging.getLogger(self.__class__.__name__)
-                self.conditions_cache = {}
-
-            def evaluate_conditions(self, conditions: List[Dict[str, Any]]) -> bool:
-                conditions_key = str(conditions)
-                if conditions_key in self.conditions_cache:
-                    return self.conditions_cache[conditions_key]
-
-                try:
-                    result = all(cond["value"] for cond in conditions)
-                    self.conditions_cache[conditions_key] = result
-                    return result
-                except KeyError as e:
-                    self.logger.error(f"Condition evaluation error: {e}")
-                    return False
-
-            def next(self):
-                self.logger.debug(f"Next called. Current Position: {self.position.size}")
-                self.logger.debug(f"Cash: {self.broker.get_cash()}, Value: {self.broker.get_value()}")
-
-                if not self.position:
-                    if self.evaluate_conditions(entry_conditions):
-                        size = self.params.get('position_size', 1)
-                        side = self.params.get('side', 'long')
-                        entry_price = self.data.close[0]
-                        stop_loss = self.params.get('stop_loss', None)
-
-                        if stop_loss:
-                            stop_loss_price = self.params['risk_manager'].calculate_stop_loss(entry_price, stop_loss / 100)
-
-                        if side == 'long':
-                            self.order = self.buy(size=size)
-                            self.logger.info(f"Long buy order placed. Size: {size}")
-                        elif side == 'short':
-                            self.order = self.sell(size=size)
-                            self.logger.info(f"Short sell order placed. Size: {size}")
-
-                elif self.evaluate_conditions(exit_conditions):
-                    if self.position.size > 0:
-                        self.order = self.sell(size=self.params.get('position_size', 1))
-                        self.logger.info(f"Closing long position.")
-                    elif self.position.size < 0:
-                        self.order = self.buy(size=self.params.get('position_size', 1))
-                        self.logger.info(f"Closing short position.")
-
-        return GeneratedStrategy
-    

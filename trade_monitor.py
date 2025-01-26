@@ -1,177 +1,160 @@
 import logging
-import redis
-import json
+from typing import Dict, List
 import asyncio
-from typing import List, Dict, Optional, Any
 
 
-class TradeManager:
+class TradeMonitor:
     """
-    Manages the lifecycle of trades, including recording, updating, retrieving, transitioning,
-    archiving, and revalidating trades. Supports handling both pending and active trades.
+    Handles trade execution, monitoring, and database synchronization.
+    Integrates with MarketMonitor for real-time updates and manages trade lifecycles.
     """
 
-    def __init__(self, redis_host="localhost", redis_port=6379, redis_db=0, trade_suggestion_manager=None):
-        self.redis_client = redis.StrictRedis(
-            host=redis_host, port=redis_port, db=redis_db, decode_responses=True
-        )
+    def __init__(self, db, exchange, market_monitor):
         self.logger = logging.getLogger(self.__class__.__name__)
-        logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-        self.trade_suggestion_manager = trade_suggestion_manager
-        self.market_monitor = None  # Set by MarketMonitor later
+        self.db = db  # Database interface
+        self.exchange = exchange  # Exchange client
+        self.market_monitor = market_monitor  # Real-time market data manager
+        self.monitored_trades = []  # Active trades being monitored
 
-    ### --- Trade Recording and Retry Management ---
-
-    def record_trade(self, trade_data: Dict):
+    async def load_trades_from_db(self):
         """
-        Records a new trade and sets its initial status.
+        Loads trades from the database into the monitor.
         """
         try:
-            trade_id = trade_data["trade_id"]
-            key = f"trade:{trade_id}"
-            trade_data["status"] = "pending"
-            trade_data.setdefault("retry_count", 0)
-            trade_data.setdefault("fallback_executed", False)
-            self.redis_client.hmset(key, trade_data)
-            self.redis_client.sadd("pending_trades", trade_id)
-            self.logger.info(f"Recorded new trade: {trade_id}")
+            trades = await self.db.get_all("trades")  # Fetch all trades from the database
+            self.monitored_trades = [trade for trade in trades if trade["status"] in ["pending", "open"]]
+            self.logger.info(f"Loaded {len(self.monitored_trades)} trades from the database.")
         except Exception as e:
-            self.logger.error(f"Failed to record trade: {e}")
+            self.logger.error(f"Failed to load trades from database: {e}")
 
-    def add_failed_trade(self, trade_data: Dict):
+    async def evaluate_trades(self, asset: str, market_data: Dict):
         """
-        Adds a failed trade back to the pending queue for retry.
+        Evaluates all trades for the given asset using real-time market data.
         """
         try:
-            trade_id = trade_data["trade_id"]
-            trade_data["status"] = "pending"
-            trade_data["retry_count"] += 1
-            self.redis_client.hmset(f"trade:{trade_id}", trade_data)
-            self.redis_client.sadd("pending_trades", trade_id)
-            self.logger.warning(f"Requeued failed trade: {trade_id}. Retry count: {trade_data['retry_count']}")
+            relevant_trades = [trade for trade in self.monitored_trades if trade["asset"] == asset]
+
+            for trade in relevant_trades:
+                # Check entry conditions for pending trades
+                if trade["status"] == "pending" and self._check_entry_conditions(trade, market_data):
+                    self.logger.info(f"Entry conditions met for trade {trade['trade_id']} on {asset}.")
+                    await self.execute_trade(trade)
+
+                # Check exit conditions for open trades
+                if trade["status"] == "open" and self._check_exit_conditions(trade, market_data):
+                    self.logger.info(f"Exit conditions met for trade {trade['trade_id']} on {asset}.")
+                    await self.close_trade(trade)
         except Exception as e:
-            self.logger.error(f"Failed to requeue trade {trade_id}: {e}")
+            self.logger.error(f"Error evaluating trades for asset {asset}: {e}")
 
-    ### --- Trade State Management ---
-
-    def transition_to_active(self, trade_id: str):
+    async def execute_trade(self, trade: Dict):
         """
-        Moves a trade from pending to active status.
+        Executes a trade and updates the database.
         """
-        self.transition_trade(trade_id, "pending_trades", "active_trades", "active")
-
-    def transition_to_closed(self, trade_id: str):
-        """
-        Moves a trade to the closed state.
-        """
-        self.transition_trade(trade_id, "active_trades", "closed_trades", "closed")
-
-    def transition_trade(self, trade_id: str, from_set: str, to_set: str, new_status: str):
-        """
-        Transitions a trade between Redis sets and updates its status.
-        """
-        key = f"trade:{trade_id}"
         try:
-            if self.redis_client.exists(key):
-                self.redis_client.srem(from_set, trade_id)
-                self.redis_client.sadd(to_set, trade_id)
-                self.redis_client.hset(key, "status", new_status)
-                self.logger.info(f"Trade {trade_id} transitioned to {new_status}.")
+            self.logger.info(f"Executing trade: {trade}")
+            # Simulated exchange API call
+            trade["status"] = "open"
+            trade["last_updated"] = self._current_timestamp()
+            await self.db.update("trades", trade["trade_id"], trade)  # Sync with database
+            self.monitored_trades.append(trade)
+        except Exception as e:
+            self.logger.error(f"Error executing trade {trade['trade_id']}: {e}")
+
+    async def close_trade(self, trade: Dict):
+        """
+        Closes a trade and updates the database.
+        """
+        try:
+            self.logger.info(f"Closing trade: {trade}")
+            # Simulated exchange API call
+            trade["status"] = "closed"
+            trade["last_updated"] = self._current_timestamp()
+            await self.db.update("trades", trade["trade_id"], trade)  # Sync with database
+            self.monitored_trades = [t for t in self.monitored_trades if t["trade_id"] != trade["trade_id"]]
+        except Exception as e:
+            self.logger.error(f"Error closing trade {trade['trade_id']}: {e}")
+
+    async def add_or_update_trade(self, trade: Dict):
+        """
+        Adds a new trade to monitoring or updates an existing one.
+        """
+        try:
+            existing_trade = next((t for t in self.monitored_trades if t["trade_id"] == trade["trade_id"]), None)
+            if existing_trade:
+                self.logger.info(f"Updating trade {trade['trade_id']} in monitoring.")
+                existing_trade.update(trade)
             else:
-                self.logger.error(f"Trade ID '{trade_id}' does not exist.")
+                self.logger.info(f"Adding new trade {trade['trade_id']} to monitoring.")
+                self.monitored_trades.append(trade)
+
+            await self.db.update("trades", trade["trade_id"], trade)  # Ensure database sync
         except Exception as e:
-            self.logger.error(f"Failed to transition trade {trade_id} from {from_set} to {to_set}: {e}")
+            self.logger.error(f"Error adding/updating trade {trade['trade_id']}: {e}")
 
-    ### --- Pending Trades Management ---
-
-    def get_pending_trades(self) -> List[Dict]:
+    async def deactivate_trade(self, trade_id: str):
         """
-        Retrieves all pending trades from the database.
+        Deactivates a specific trade by marking it as inactive and cleaning up resources.
         """
         try:
-            trade_ids = self.redis_client.smembers("pending_trades")
-            trades = [self.redis_client.hgetall(f"trade:{trade_id}") for trade_id in trade_ids]
-            self.logger.info(f"Retrieved {len(trades)} pending trades.")
-            return trades
-        except Exception as e:
-            self.logger.error(f"Failed to retrieve pending trades: {e}")
-            return []
-
-    def retry_pending_trades(self):
-        """
-        Retries all pending trades that have failed or require reprocessing.
-        """
-        try:
-            pending_trades = self.get_pending_trades()
-            for trade in pending_trades:
-                retry_count = int(trade.get("retry_count", 0))
-                if retry_count >= 3:
-                    self.logger.warning(f"Trade {trade['trade_id']} exceeded max retries. Archiving trade.")
-                    self.transition_to_closed(trade["trade_id"])
-                else:
-                    self.logger.info(f"Retrying trade {trade['trade_id']} (Retry count: {retry_count}).")
-                    self.add_failed_trade(trade)
-        except Exception as e:
-            self.logger.error(f"Error retrying pending trades: {e}")
-
-    ### --- Trade Retrieval and Monitoring ---
-
-    def get_active_trades(self, strategy_id: Optional[str] = None) -> List[Dict]:
-        """
-        Retrieves all active trades from the database. Filters by strategy_id if provided.
-        """
-        try:
-            pattern = f"trade:{strategy_id}:*" if strategy_id else "trade:*"
-            trade_keys = self.redis_client.keys(pattern)
-            trades = [json.loads(self.redis_client.get(key)) for key in trade_keys]
-            self.logger.info(f"Retrieved {len(trades)} active trades.")
-            return trades
-        except Exception as e:
-            self.logger.error(f"Failed to retrieve active trades: {e}")
-            return []
-
-    ### --- MarketMonitor Integration ---
-
-    def set_market_monitor(self, market_monitor):
-        """
-        Links MarketMonitor to TradeManager for trade updates.
-        """
-        self.market_monitor = market_monitor
-        self.logger.info("MarketMonitor linked to TradeManager.")
-
-    ### --- Trade Synchronization and Revalidation ---
-
-    async def revalidate_trades(self, strategy_json: Dict[str, Any], market_data: Dict[str, Any], budget: float):
-        """
-        Periodically synchronizes active trades with OpenAI suggestions and market conditions.
-        """
-        strategy_id = strategy_json["strategy_name"]
-        active_trades = self.get_active_trades(strategy_id)
-
-        # Generate new trade suggestions
-        new_trades = self.trade_suggestion_manager.generate_trades(strategy_json, market_data, budget)
-
-        # Synchronize trades
-        updated_trades = []
-        for new_trade in new_trades:
-            for active_trade in active_trades:
-                if active_trade["trade_id"] == new_trade["trade_id"]:
-                    # Update trade if needed
-                    if active_trade != new_trade:
-                        self.logger.info(f"Updating trade: {new_trade['trade_id']}")
-                        self.save_trade(new_trade, strategy_id)
-                        updated_trades.append(new_trade)
-                    break
+            trade = next((t for t in self.monitored_trades if t["trade_id"] == trade_id), None)
+            if trade:
+                trade["status"] = "inactive"
+                trade["last_updated"] = self._current_timestamp()
+                await self.db.update("trades", trade_id, trade)
+                self.monitored_trades = [t for t in self.monitored_trades if t["trade_id"] != trade_id]
+                self.logger.info(f"Trade {trade_id} has been deactivated.")
             else:
-                # Add new trade
-                self.logger.info(f"Adding new trade: {new_trade['trade_id']}")
-                self.save_trade(new_trade, strategy_id)
-                updated_trades.append(new_trade)
+                self.logger.warning(f"Trade {trade_id} not found in monitoring.")
+        except Exception as e:
+            self.logger.error(f"Error deactivating trade {trade_id}: {e}")
 
-        # Archive removed trades
-        removed_trades = [trade for trade in active_trades if trade not in updated_trades]
-        self.archive_trades(strategy_id, removed_trades)
+    def _check_entry_conditions(self, trade: Dict, market_data: Dict) -> bool:
+        """
+        Evaluates if entry conditions are met for a trade.
+        """
+        try:
+            entry_conditions = trade.get("entry_conditions", [])
+            return all(self._evaluate_condition(market_data, condition) for condition in entry_conditions)
+        except Exception as e:
+            self.logger.error(f"Error checking entry conditions for trade {trade['trade_id']}: {e}")
+            return False
 
-        # Notify MarketMonitor
-        if self.market_monitor:
-            self.market_monitor.on_trades_updated(strategy_id, updated_trades)
+    def _check_exit_conditions(self, trade: Dict, market_data: Dict) -> bool:
+        """
+        Evaluates if exit conditions are met for a trade.
+        """
+        try:
+            exit_conditions = trade.get("exit_conditions", [])
+            return all(self._evaluate_condition(market_data, condition) for condition in exit_conditions)
+        except Exception as e:
+            self.logger.error(f"Error checking exit conditions for trade {trade['trade_id']}: {e}")
+            return False
+
+    def _evaluate_condition(self, market_data: Dict, condition: Dict) -> bool:
+        """
+        Checks a single condition against market data.
+        """
+        try:
+            indicator = condition["indicator"]
+            operator = condition["operator"]
+            value = condition["value"]
+            data_value = market_data.get(indicator)
+            return self._evaluate_operator(data_value, operator, value)
+        except Exception as e:
+            self.logger.error(f"Error evaluating condition: {e}")
+            return False
+
+    def _evaluate_operator(self, a, operator, b) -> bool:
+        """
+        Compares values based on the given operator.
+        """
+        ops = {"<": lambda x, y: x < y, ">": lambda x, y: x > y, "<=": lambda x, y: x <= y, ">=": lambda x, y: x >= y, "==": lambda x, y: x == y}
+        return ops.get(operator, lambda x, y: False)(a, b)
+
+    def _current_timestamp(self):
+        """
+        Returns the current timestamp in ISO format.
+        """
+        from datetime import datetime
+        return datetime.utcnow().isoformat()

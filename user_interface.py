@@ -37,27 +37,32 @@ class UserInterface:
         self.performance_manager = PerformanceManager(self.trade_manager)
         self.strategy_manager = StrategyManager(self.trade_manager)
         
-        # Initialize trading components
-        self.trade_suggestion_manager = TradeSuggestionManager(
-            openai_api_key=os.getenv("OPENAI_API_KEY"),
-            trade_manager=self.trade_manager
-        )
-        
+        # Initialize TradeExecutor first
         self.trade_executor = TradeExecutor(
             exchange=self.exchange,
             trade_manager=self.trade_manager,
             budget_manager=self.budget_manager
         )
-        
+
+        # Initialize MarketMonitor first
         self.market_monitor = MarketMonitor(
             exchange=self.exchange,
-            strategy_manager=self.strategy_manager,
-            trade_manager=self.trade_manager, 
-            trade_executor=self.trade_executor,
-            budget_manager=self.budget_manager,
-            trade_suggestion_manager=self.trade_suggestion_manager
+            trade_monitor=self.trade_manager,
+            trade_suggestion_manager=None  # Placeholder, will be set later
         )
-
+        
+        # Initialize TradeSuggestionManager with MarketMonitor
+        self.trade_suggestion_manager = TradeSuggestionManager(
+            openai_api_key=os.getenv("OPENAI_API_KEY"),
+            strategy_manager=self.strategy_manager,
+            trade_manager=self.trade_manager,
+            exchange=self.exchange,
+            market_monitor=self.market_monitor
+        )
+        
+        # Set the TradeSuggestionManager in MarketMonitor
+        self.market_monitor.trade_suggestion_manager = self.trade_suggestion_manager
+        
         # Initialize dashboard last since it depends on other components
         self.dashboard = Dashboard(
             strategy_manager=self.strategy_manager,
@@ -73,6 +78,9 @@ class UserInterface:
 
     async def start(self):
             """Start the user interface and dashboard."""
+
+            asyncio.create_task(self.market_monitor.start_websocket_monitoring())
+     
             try:
                 await self.dashboard.start()
             except Exception as e:
@@ -174,18 +182,21 @@ class UserInterface:
             input("Press Enter to continue...")
 
 
-    def get_strategy_selection(self, prompt: str):
+    async def get_strategy_selection(self, prompt: str):
         """
         Lists strategies and prompts the user to select one by index.
-        :param prompt: Instructional text for the user.
-        :return: The selected strategy dictionary or None if invalid.
         """
-        strategies = self.list_strategies()
+        strategies = await self.strategy_manager.list_strategies()
         if not strategies:
             self.console.print("[bold red]No strategies found. Returning to main menu.[/bold red]")
             return None
 
         try:
+            # Display strategies
+            self.console.print("\n--- Available Strategies ---")
+            for i, strategy in enumerate(strategies, start=1):
+                self.console.print(f"{i}. {strategy['title']} (ID: {strategy['id']})")
+
             choice = int(input(f"{prompt} (Enter a number): ")) - 1
             if 0 <= choice < len(strategies):
                 return strategies[choice]
@@ -211,60 +222,68 @@ class UserInterface:
             self.logger.error(f"Failed to create a new strategy: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
-    def list_strategies(self):
-        """Lists all saved strategies."""
+    async def list_strategies(self):
+        """
+        Lists all saved strategies using the StrategyManager and displays them in a formatted table.
+        """
         try:
-            strategies = self.strategy_manager.list_strategies()
+            # Fetch strategies from StrategyManager
+            strategies = await self.strategy_manager.list_strategies()
+
+            if not strategies:
+                self.console.print("[bold red]No strategies found. Returning to main menu.[/bold red]")
+                return
+
+            # Prepare table for display
             table = Table(title="Saved Strategies", title_style="bold cyan")
             table.add_column("Index", style="magenta", justify="center")
             table.add_column("Title", style="cyan", justify="left")
             table.add_column("Active", style="green", justify="center")
+            table.add_column("Market Type", style="yellow", justify="center")
+            table.add_column("Assets", style="blue", justify="left")
+            table.add_column("Number of Trades", style="red", justify="center")
 
-            for i, strategy in enumerate(strategies, start=1):
-                table.add_row(str(i), strategy['title'], "Yes" if strategy['active'] else "No")
+            for idx, strategy in enumerate(strategies, start=1):
+                assets = ", ".join(strategy.get("assets", []))
+                active_status = "Yes" if strategy.get("active", False) else "No"
+                num_trades = len(strategy.get("trades", []))
+                market_type = strategy.get("market_type", "Unknown")
+                table.add_row(
+                    str(idx),
+                    strategy.get("title", "N/A"),
+                    active_status,
+                    market_type,
+                    assets,
+                    str(num_trades),
+                )
 
             self.console.print(table)
-            return strategies
-        except Exception as e:
-            self.logger.error(f"Failed to list strategies: {e}")
-            self.console.print(f"[bold red]Error: {e}[/bold red]")
-            return []
 
-    def edit_strategy(self):
-        """
-        Allows the user to edit a saved strategy.
-        """
+        except Exception as e:
+            self.logger.error(f"Failed to list strategies: {e}", exc_info=True)
+            self.console.print(f"[bold red]Error listing strategies: {e}[/bold red]")
+
+
+    async def edit_strategy(self):
+        """Allows the user to edit a saved strategy."""
         try:
-            strategies = self.list_strategies()
-            if not strategies:
-                self.console.print("[bold red]No strategies available to edit. Returning to the main menu.[/bold red]")
+            strategy = await self.get_strategy_selection("Select a strategy to edit")
+            if not strategy:
                 return
 
-            # Prompt the user to select a strategy
-            self.console.print("\n--- Select a Strategy to Edit ---")
-            for i, strategy in enumerate(strategies, start=1):
-                self.console.print(f"{i}. {strategy['title']} (ID: {strategy['id']})")
+            # Rest of the edit strategy logic
+            strategy_id = strategy['id']
+            updates = {}
+            title = input(f"New Title [{strategy['title']}]: ").strip()
+            if title:
+                updates['title'] = title
 
-            choice = int(input("Select a strategy by number: ")) - 1
-            if 0 <= choice < len(strategies):
-                strategy_id = strategies[choice]['id']
-                strategy = self.strategy_manager.load_strategy(strategy_id)
+            description = input(f"New Description [{strategy['description']}]: ").strip()
+            if description:
+                updates['description'] = description
 
-                updates = {}
-                title = input(f"New Title [{strategy['title']}]: ").strip()
-                if title:
-                    updates['title'] = title
-
-                description = input(f"New Description [{strategy['description']}]: ").strip()
-                if description:
-                    updates['description'] = description
-
-                self.strategy_manager.edit_strategy(strategy_id, updates)
-                self.console.print(f"[bold green]Strategy '{strategy['title']}' updated successfully.[/bold green]")
-            else:
-                self.console.print("[bold red]Invalid selection. Returning to the main menu.[/bold red]")
-        except ValueError:
-            self.console.print("[bold red]Invalid input. Please enter a valid number.[/bold red]")
+            await self.strategy_manager.edit_strategy(strategy_id, updates)
+            self.console.print(f"[bold green]Strategy updated successfully.[/bold green]")
         except Exception as e:
             self.logger.error(f"Failed to edit strategy: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
@@ -306,56 +325,56 @@ class UserInterface:
             self.logger.error(f"Failed to run scenario tests: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
-    def assign_budget(self):
-        """Assigns a budget to a strategy."""
+    async def assign_budget(self):
+        """
+        Assigns a budget to a strategy.
+        """
         try:
-            strategy = self.get_strategy_selection("Select a strategy to assign a budget")
+            # Await the strategy selection
+            strategy = await self.get_strategy_selection("Select a strategy to assign a budget")
             if not strategy:
                 return
 
-            strategy_id = strategy['id']
+            strategy_id = strategy["id"]
+
+            # Prompt the user for budget input
             amount = float(input("Enter the budget amount (in USDT): "))
-            self.budget_manager.set_budget(strategy_id, amount)
+
+            # Assign the budget using the BudgetManager
+            await self.budget_manager.set_budget(strategy_id, amount)
+
             self.console.print(f"[bold green]Budget of {amount} USDT assigned to strategy '{strategy['title']}'.[/bold green]")
+
         except Exception as e:
-            self.logger.error(f"Failed to assign budget: {e}")
+            self.logger.error(f"Failed to assign budget: {e}", exc_info=True)
             self.console.print(f"[bold red]Error: {e}[/bold red]")
+
 
     async def activate_strategy(self):
         """
         Activates a saved strategy for live trading with budget allocation.
         """
         try:
-            strategy = self.get_strategy_selection("Select a strategy to activate")
+            strategy = await self.get_strategy_selection("Select a strategy to activate")
             if not strategy:
                 return
 
             strategy_id = strategy["id"]
 
             # Check if a budget is set
-            budget = self.budget_manager.get_budget(strategy_id)
+            budget = await self.budget_manager.get_budget(strategy_id)
             if budget <= 0:
                 self.console.print(f"[bold red]No budget assigned to strategy '{strategy['title']}'. Assign a budget before activating.[/bold red]")
                 return
 
-            # Activate the strategy
-            self.strategy_manager.activate_strategy(strategy_id)
-
-            # Generate initial trades based on entry conditions
-            strategy_data = self.strategy_manager.load_strategy(strategy_id)
-            assets = strategy_data.get("assets", [])
-            market_data = {
-                asset: await self.trade_suggestion_manager.fetch_market_data(asset, strategy_data["market_type"], self.exchange)
-                for asset in assets
-            }
-
-            self.console.print(f"Market Data {market_data}")
+            # Load strategy data for the selected strategy
+            await self.strategy_manager.activate_strategy(strategy_id)
 
             # Generate trades with budget allocation
-            suggested_trades = self.trade_suggestion_manager.generate_trades(strategy_data, market_data, budget)
+            suggested_trades = await self.trade_suggestion_manager.process_strategy_trades(strategy_id, budget)
+            self.logger.info(f"Generated {len(suggested_trades)} trades for strategy '{strategy['title']}'.")
 
-    
-            self.console.print(f"[bold green]Strategy '{strategy['title']}' activated and trades generated.[/bold green]")
+            self.console.print(f"[bold green]Strategy '{strategy['title']}' activated and {len(suggested_trades)} trades generated.[/bold green]")
 
         except Exception as e:
             self.logger.error(f"Failed to activate strategy: {e}")
@@ -399,50 +418,121 @@ class UserInterface:
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
     async def run_backtest(self):
-        """
-        Prompts the user to run a backtest, including budget allocation.
-        """
+        """Execute a backtest for a selected strategy."""
         try:
-            # Select strategy
-            strategy = self.get_strategy_selection("Select a strategy to run backtests")
+            # Step 1: Strategy Selection
+            strategy = self.get_strategy_selection("Select a strategy to backtest")
             if not strategy:
                 return
 
-            # Prompt for historical data source
-            source = input("Enter the source - y for synthetic: ").strip()
-            if source.lower() == "y":
-                # Generate synthetic data
+            # Load strategy data
+            strategy_id = strategy["id"]
+            strategy_data = self.strategy_manager.load_strategy(strategy_id)
+
+            # Extract asset pairs from strategy JSON
+            trading_pairs = strategy_data.get("data", {}).get("assets", [])
+            if not trading_pairs:
+                self.console.print(f"[bold red]No trading pairs found in the selected strategy.[/bold red]")
+                return
+
+            # Step 2: Data Source Selection
+            self.console.print("\n[bold cyan]Select Data Source:[/bold cyan]")
+            self.console.print("1. Synthetic Data")
+            self.console.print("2. CSV File")
+            self.console.print("3. Historical Data from Exchange (for strategy assets)")
+
+            source_choice = input("Choose the data source (1/2/3): ").strip()
+
+            if source_choice == "1":
+                # Synthetic Data
                 scenario = input("Enter market scenario (bull, bear, sideways): ").strip().lower()
                 timeframe = input("Enter timeframe (e.g., 1m, 5m, 1h): ").strip()
                 duration_days = int(input("Enter duration in days: ").strip())
-                historical_data = self.backtester.generate_synthetic_data(scenario, timeframe, duration_days)
+                historical_data = await self.backtester.generate_synthetic_data(
+                    scenario=scenario,
+                    timeframe=timeframe,
+                    duration_days=duration_days
+                )
+            elif source_choice == "2":
+                # CSV Data
+                csv_path = input("Enter the path to the CSV file: ").strip()
+                try:
+                    historical_data = pd.read_csv(csv_path)
+                    self.console.print(f"[bold green]Loaded data from {csv_path}.[/bold green]")
+                except Exception as e:
+                    self.console.print(f"[bold red]Error loading CSV file: {e}[/bold red]")
+                    return
+            elif source_choice == "3":
+                # Exchange Data for Strategy Assets
+                self.console.print(f"[bold cyan]Fetching historical data for assets: {trading_pairs}[/bold cyan]")
+                timeframe = input("Enter the timeframe (e.g., 1m, 5m, 1h): ").strip()
+                start_date = input("Enter the start date (YYYY-MM-DD): ").strip()
+                end_date = input("Enter the end date (YYYY-MM-DD): ").strip()
+
+                try:
+                    # Convert user input to timestamps
+                    start_timestamp = int(pd.Timestamp(start_date).timestamp() * 1000)  # ms
+                    end_timestamp = int(pd.Timestamp(end_date).timestamp() * 1000)  # ms
+
+                    historical_data_list = []
+                    for asset in trading_pairs:
+                        self.console.print(f"[bold cyan]Fetching data for {asset}...[/bold cyan]")
+                        ohlcv = self.exchange.fetch_ohlcv(asset, timeframe, since=start_timestamp)
+                        # Filter the data to ensure it matches the provided time range
+                        filtered_data = [
+                            row for row in ohlcv if start_timestamp <= row[0] <= end_timestamp
+                        ]
+                        data = pd.DataFrame(
+                            filtered_data,
+                            columns=["timestamp", "open", "high", "low", "close", "volume"]
+                        )
+                        data["asset"] = asset
+                        data["timestamp"] = pd.to_datetime(data["timestamp"], unit="ms")
+                        historical_data_list.append(data)
+
+                    # Combine data from all assets into one DataFrame
+                    historical_data = pd.concat(historical_data_list, ignore_index=True)
+                    self.console.print(f"[bold green]Fetched historical data from the exchange for all strategy assets.[/bold green]")
+                except Exception as e:
+                    self.console.print(f"[bold red]Error fetching data from the exchange: {e}[/bold red]")
+                    return
             else:
-                # Load historical data from CSV
-                historical_data = pd.read_csv(source)
+                self.console.print("[bold red]Invalid selection. Returning to the main menu.[/bold red]")
+                return
 
-            # Prompt for budget
-            budget = float(input("Enter total budget for the backtest (in USDT): ").strip())
+            # Step 3: Validate Strategy and Execute Backtest
+            # Pre-validate and fetch prices
+            # validated_data = await self.backtester.pre_validate_and_fetch_prices(strategy_id)
 
-            # Run backtest
-            strategy_id = strategy["id"]
-            results = self.backtester.run_backtest(strategy_id, historical_data, budget)
-            self.console.print(f"[bold green]Backtest completed for strategy '{strategy['title']}'.[/bold green]")
-            self.console.print(f"Final Portfolio Value: {results['final_portfolio_value']:.2f} USDT")
+            # Run Backtest
+            results = await self.backtester.run_backtest(
+                strategy_id=strategy_id,
+                historical_data=historical_data
+            )
+
+            # Step 4: Display Results
+            self.console.print(f"[bold green]Backtest completed for '{strategy['title']}'[/bold green]")
+            self.console.print(f"Initial Value: {results['initial_value']:.2f} USDT")
+            self.console.print(f"Final Value: {results['final_value']:.2f} USDT")
+            self.console.print(f"Total Return: {results['return']:.2f}%")
+            self.console.print(f"Sharpe Ratio: {results['sharpe_ratio']:.2f}")
+            self.console.print(f"Max Drawdown: {results['max_drawdown']:.2f}%")
+            self.console.print(f"Win Rate: {results['win_rate']:.2f}%")
 
         except Exception as e:
-            self.logger.error(f"Failed to run backtests: {e}")
+            self.logger.error(f"Failed to run backtest: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
-    def remove_strategy(self):
+    async def remove_strategy(self):
         """Allows the user to remove a saved strategy."""
         try:
-            strategy = self.get_strategy_selection("Select a strategy to remove")
+            strategy = await self.get_strategy_selection("Select a strategy to remove")
             if not strategy:
                 return
 
             strategy_id = strategy['id']
-            self.strategy_manager.remove_strategy(strategy_id)
-            self.console.print(f"[bold green]Strategy '{strategy['title']}' removed successfully.[/bold green]")
+            await self.strategy_manager.remove_strategy(strategy_id)
+            self.console.print(f"[bold green]Strategy removed successfully.[/bold green]")
         except Exception as e:
             self.logger.error(f"Failed to remove strategy: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
@@ -451,7 +541,7 @@ class UserInterface:
         """Displays the live trading dashboard."""
         try:
             self.console.print("[bold cyan]Launching the live trading dashboard...[/bold cyan]")
-            await self.dashboard.run()  # Ensure the coroutine is awaited
+            await self.dashboard.start()  # Ensure the coroutine is awaited
         except Exception as e:
             self.logger.error(f"Failed to display dashboard: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
@@ -466,3 +556,13 @@ class UserInterface:
             self.console.print("[bold cyan]Exiting the program... Goodbye![/bold cyan]")
             await asyncio.sleep(1)
             exit(0)
+
+    async def validate_strategy(self, strategy_id: str):
+        """Validate strategy with market data."""
+        try:
+            return await self.backtester.pre_validate_and_fetch_prices(strategy_id)
+        except Exception as e:
+            self.logger.error(f"Strategy validation failed: {e}")
+            raise
+
+

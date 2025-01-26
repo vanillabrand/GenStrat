@@ -79,6 +79,26 @@ class TradeManager:
         except Exception as e:
             self.logger.error(f"Failed to record trade: {e}")
             return None
+        
+    def add_trade(self, trade_data: Dict) -> Optional[str]:
+        """Adds a new trade to the system."""
+        try:
+            trade_id = self.record_trade(trade_data)
+            if trade_id:
+                self.logger.info(f"Trade {trade_id} added successfully.")
+            return trade_id
+        except Exception as e:
+            self.logger.error(f"Failed to add trade: {e}")
+            return None
+            
+    def cancel_trade(self, trade_id: str):
+        """Cancels a pending trade."""
+        self.transition_trade(trade_id, "pending_trades", "cancelled_trades", TradeState.CANCELLED.value)
+
+    def close_trade(self, trade_id: str):
+        """Closes an active trade."""
+        self.transition_trade(trade_id, "active_trades", "closed_trades", TradeState.CLOSED.value)
+    
 
     def add_failed_trade(self, trade_data: Dict):
         """Requeues failed trade with retry logic."""

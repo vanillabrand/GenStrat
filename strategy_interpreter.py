@@ -130,6 +130,7 @@ class StrategyInterpreter:
 
         Ensure that:
         - Indicators, assets, and conditions are compatible with Backtrader, CCXT, and BitGet.
+        - Choose asset pairs that are available on the exchange and market type specified. Usually this is ASSETUSDT.
         - Entry and exit conditions are fully specified and realistic. Thesed should be specified in the conditions field. Use multiples of these if you need to interpret a complicated strategy.
         - Risk management settings include stop-loss, take-profit, and trailing stop-loss. Check if the user has specified the risk level in the prompt.
         - Make sure you have enough technical information in the returned JSON to support the generation of the correct trades and parameters matching the strategy.
