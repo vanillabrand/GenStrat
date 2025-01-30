@@ -80,21 +80,7 @@ class StrategyInterpreter:
             },
         }
 
-    def apply_defaults(self, strategy_data: dict) -> dict:
-        """Applies default values for missing fields."""
-        defaults = {
-            "trade_parameters": {"leverage": 1, "order_type": "market", "position_size": 0.1},
-            "risk_management": {"stop_loss": 5, "take_profit": 10, "trailing_stop_loss": 2},
-            "conditions": {"entry": [], "exit": []},
-        }
-        for key, value in defaults.items():
-            if key not in strategy_data:
-                strategy_data[key] = value
-            else:
-                for sub_key, sub_value in value.items():
-                    strategy_data[key].setdefault(sub_key, sub_value)
-        return strategy_data
-
+    
     def interpret(self, description: str) -> dict:
         """Interprets a strategy description into JSON using GPT and validates it."""
         cache_key = self._generate_cache_key(description)
@@ -109,7 +95,6 @@ class StrategyInterpreter:
 
         try:
             strategy_data = json.loads(strategy_json)
-            strategy_data = self.apply_defaults(strategy_data)
             
             # Validate JSON
             validate(instance=strategy_data, schema=self.schema)
@@ -142,7 +127,7 @@ class StrategyInterpreter:
         - Write a short description of the strategy, including the rationale behind it in the strategy_rationale field.
         - Include any additional parameters or settings that are necessary for the strategy to function correctly
         - The response contains only valid JSON, no additional explanations or text. Encode strings where necessary.
-        - Conditions include all relevant trading pairs, up to 30 pairs for futures and 20 pairs for spot and margin.
+        - Conditions include all relevant trading pairs, up to 10 pairs for futures and 10 pairs for spot and margin.
         - Use new and innovative strategies that are not commonly found in the market to compliment the user's request
         - Ensure the strategy takes in to consideration anti-whale and anti-bot measures to prevent manipulation of the market
         

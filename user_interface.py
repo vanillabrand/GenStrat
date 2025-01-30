@@ -216,7 +216,7 @@ class UserInterface:
             interpreter = StrategyInterpreter(os.getenv("OPENAI_API_KEY"))
             strategy_json = interpreter.interpret(description)
 
-            self.strategy_manager.save_strategy(title, description, strategy_json)
+            await self.strategy_manager.save_strategy(title, description, strategy_json)
             self.console.print(f"[bold green]Strategy '{title}' created successfully.[/bold green]")
         except Exception as e:
             self.logger.error(f"Failed to create a new strategy: {e}")
@@ -288,9 +288,9 @@ class UserInterface:
             self.logger.error(f"Failed to edit strategy: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
-    def run_scenario_tests(self):
+    async def run_scenario_tests(self):
         """Prompts the user to run scenario tests."""
-        strategy = self.get_strategy_selection("Select a strategy to run scenario tests")
+        strategy = await self.get_strategy_selection("Select a strategy to run scenario tests")
         if not strategy:
             return
 
@@ -367,14 +367,15 @@ class UserInterface:
                 self.console.print(f"[bold red]No budget assigned to strategy '{strategy['title']}'. Assign a budget before activating.[/bold red]")
                 return
 
-            # Load strategy data for the selected strategy
+            # Activate strategy
+
             await self.strategy_manager.activate_strategy(strategy_id)
 
             # Generate trades with budget allocation
-            suggested_trades = await self.trade_suggestion_manager.process_strategy_trades(strategy_id, budget)
-            self.logger.info(f"Generated {len(suggested_trades)} trades for strategy '{strategy['title']}'.")
+            # suggested_trades = await self.trade_suggestion_manager.process_strategy_trades(strategy_id, budget)
+            # self.logger.info(f"Generated {len(suggested_trades)} trades for strategy '{strategy['title']}'.")
 
-            self.console.print(f"[bold green]Strategy '{strategy['title']}' activated and {len(suggested_trades)} trades generated.[/bold green]")
+            # self.console.print(f"[bold green]Strategy '{strategy['title']}' activated and {len(suggested_trades)} trades generated.[/bold green]")
 
         except Exception as e:
             self.logger.error(f"Failed to activate strategy: {e}")
@@ -384,7 +385,7 @@ class UserInterface:
     async def deactivate_strategy(self):
             """Deactivates a saved strategy."""
             try:
-                strategy = self.get_strategy_selection("Select a strategy to deactivate")
+                strategy = await self.get_strategy_selection("Select a strategy to deactivate")
                 if not strategy:
                     return
 
@@ -396,10 +397,10 @@ class UserInterface:
                 self.console.print(f"[bold red]Error: {e}[/bold red]")
 
 
-    def view_performance_metrics(self):
+    async def view_performance_metrics(self):
         """Displays performance metrics for a strategy."""
         try:
-            strategy = self.get_strategy_selection("Select a strategy to view performance")
+            strategy = await self.get_strategy_selection("Select a strategy to view performance")
             if not strategy:
                 return
 
@@ -545,12 +546,7 @@ class UserInterface:
         except Exception as e:
             self.logger.error(f"Failed to display dashboard: {e}")
             self.console.print(f"[bold red]Error: {e}[/bold red]")
-        def exit_program(self):
-            """Exits the program."""
-            self.console.print("[bold cyan]Exiting the program... Goodbye![/bold cyan]")
-            exit(0)
-
-            
+                
     async def exit_program(self):
             """Exits the program."""
             self.console.print("[bold cyan]Exiting the program... Goodbye![/bold cyan]")

@@ -14,7 +14,7 @@ class TradeSuggestionManager:
     def __init__(self, openai_api_key, trade_manager, strategy_manager, exchange, market_monitor):
         self.logger = logging.getLogger(self.__class__.__name__)
         openai.api_key = openai_api_key
-        self.trade_manager = trade_manager
+        self.trade_manager = trade_manager  # TradeManager instance
         self.strategy_manager = strategy_manager
         self.exchange = exchange
         self.market_monitor = market_monitor
@@ -31,7 +31,7 @@ class TradeSuggestionManager:
             else:
                 market_data = self.exchange.fetch_tickers(assets)  # Call directly if synchronous
 
-            self.logger.info(f"Market data fetched: {market_data}")
+            #self.logger.info(f"Market data fetched: {market_data}")
             return market_data
         except Exception as e:
             self.logger.error(f"Failed to fetch market data: {e}", exc_info=True)
@@ -50,10 +50,12 @@ class TradeSuggestionManager:
             strategy = await self.strategy_manager.load_strategy(strategy_id)
             if not strategy:
                 raise ValueError(f"Strategy with ID {strategy_id} not found.")
-            self.logger.info(f"Loaded strategy {strategy_id}: {strategy['title']}")
+                #self.logger.info(f"Loaded strategy {strategy_id}: {strategy['title']}")
 
             # Step 2: Fetch market data for all asset pairs
             asset_pairs = strategy["data"]["assets"]
+            self.logger.warning(f"Creating entry for {asset_pairs}")
+
             market_data = await self.fetch_market_data(asset_pairs)
             if not market_data:
                 self.logger.error(f"Market data could not be fetched for strategy {strategy_id}.")
@@ -66,13 +68,13 @@ class TradeSuggestionManager:
                 return
 
             # Step 4: Store trades and initiate monitoring
+
             self.logger.info(f"Generated trades for strategy {strategy_id}: {trades}")
             await self.market_monitor.monitor_strategy(strategy, trades)
 
         except Exception as e:
             self.logger.error(f"Error processing trades for strategy {strategy_id}: {e}", exc_info=True)
-
-    def create_prompt(self, strategy_json, market_data, budget):
+    def create_prompt(self, strategy_id, strategy_json, market_data, budget):
         """
         Creates a detailed prompt for OpenAI to generate trades, including budget allocation.
         """
@@ -118,20 +120,19 @@ class TradeSuggestionManager:
         Generates and validates trades using OpenAI.
         """
         try:
-            prompt = self.create_prompt(strategy_json, market_data, budget)
+            prompt = self.create_prompt(strategy_id, strategy_json, market_data, budget)
             response = await openai.ChatCompletion.acreate(
                 model="gpt-4",
                 messages=[
-                    {"role": "system", "content": "You are an expert CRYPTO trading assistant."},
+                    {"role": "system", "content": "You are an expert CRYPTO trading assistant. You respond with succesful trading suggestions based on the supplied strategy details."},
                     {"role": "user", "content": prompt}
                 ]
             )
 
             content = response["choices"][0]["message"]["content"]
-            self.logger.info(f"[OpenAI] Response: {content}")
 
             trades = json.loads(content)
-            return self.validate_trades(trades, budget)
+            return trades
 
         except Exception as e:
             self.logger.error(f"Error generating trades: {e}")

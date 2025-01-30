@@ -62,7 +62,7 @@ class Dashboard:
 
     async def _update_dashboard(self, layout: Layout):
         """Update dashboard components"""
-        strategies = self.strategy_manager.list_strategies()
+        strategies = await self.strategy_manager.list_strategies()
         current_strategy = strategies[self.current_page]
         
         # Update strategy overview
@@ -173,14 +173,14 @@ class Dashboard:
     async def handle_input(self, key: str):
         """Handle user input"""
         if key == "right":
-            self.current_page = (self.current_page + 1) % len(self.strategy_manager.list_strategies())
+            self.current_page = await (self.current_page + 1) % len(self.strategy_manager.list_strategies())
         elif key == "left":
-            self.current_page = (self.current_page - 1) % len(self.strategy_manager.list_strategies())
+            self.current_page = await (self.current_page - 1) % len(self.strategy_manager.list_strategies())
         elif key == "space":
-            strategy = self.strategy_manager.list_strategies()[self.current_page]
+            strategy = await self.strategy_manager.list_strategies()[self.current_page]
             await self.strategy_manager.toggle_strategy(strategy['id'])
         elif key == "c":
-            strategy = self.strategy_manager.list_strategies()[self.current_page]
+            strategy = await self.strategy_manager.list_strategies()[self.current_page]
             await self.trade_manager.close_all_strategy_trades(strategy['id'])
 
     def _calculate_pnl(self, trade: Dict) -> float:

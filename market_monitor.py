@@ -71,7 +71,7 @@ class MarketMonitor:
             self.logger.info("WebSocket monitoring stopped.")
         except Exception as e:
             self.logger.error(f"Unexpected error in WebSocket monitoring: {e}", exc_info=True)
-
+            
     async def process_ticker_updates(self, updates: List[Dict]):
         """
         Processes a batch of WebSocket ticker updates.

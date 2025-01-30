@@ -63,7 +63,7 @@ class StrategyManager:
         """
         Saves a new strategy to Redis.
         """
-        self.validate_strategy_data(strategy_data)
+        
         strategy_id = self.generate_unique_id()
         key = f"{self.STRATEGY_PREFIX}{strategy_id}"
 

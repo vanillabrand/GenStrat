@@ -1,12 +1,14 @@
 import logging
 from typing import Dict, List
 import asyncio
+from datetime import datetime, timezone
 
 
 class TradeMonitor:
     """
     Handles trade execution, monitoring, and database synchronization.
-    Integrates with MarketMonitor for real-time updates and manages trade lifecycles.
+    Integrates with MarketMonitor   for real-time updates and manages trade lifecycles.
+    Supports hybrid real-time streaming and periodic updates for efficiency.
     """
 
     def __init__(self, db, exchange, market_monitor):
@@ -14,7 +16,9 @@ class TradeMonitor:
         self.db = db  # Database interface
         self.exchange = exchange  # Exchange client
         self.market_monitor = market_monitor  # Real-time market data manager
-        self.monitored_trades = []  # Active trades being monitored
+        self.monitored_trades: List[Dict] = []  # Active trades being monitored
+
+    ### --- Trade Lifecycle Management ---
 
     async def load_trades_from_db(self):
         """
@@ -25,7 +29,7 @@ class TradeMonitor:
             self.monitored_trades = [trade for trade in trades if trade["status"] in ["pending", "open"]]
             self.logger.info(f"Loaded {len(self.monitored_trades)} trades from the database.")
         except Exception as e:
-            self.logger.error(f"Failed to load trades from database: {e}")
+            self.logger.error(f"Failed to load trades from database: {e}", exc_info=True)
 
     async def evaluate_trades(self, asset: str, market_data: Dict):
         """
@@ -33,7 +37,6 @@ class TradeMonitor:
         """
         try:
             relevant_trades = [trade for trade in self.monitored_trades if trade["asset"] == asset]
-
             for trade in relevant_trades:
                 # Check entry conditions for pending trades
                 if trade["status"] == "pending" and self._check_entry_conditions(trade, market_data):
@@ -45,7 +48,7 @@ class TradeMonitor:
                     self.logger.info(f"Exit conditions met for trade {trade['trade_id']} on {asset}.")
                     await self.close_trade(trade)
         except Exception as e:
-            self.logger.error(f"Error evaluating trades for asset {asset}: {e}")
+            self.logger.error(f"Error evaluating trades for asset {asset}: {e}", exc_info=True)
 
     async def execute_trade(self, trade: Dict):
         """
@@ -53,13 +56,13 @@ class TradeMonitor:
         """
         try:
             self.logger.info(f"Executing trade: {trade}")
-            # Simulated exchange API call
             trade["status"] = "open"
             trade["last_updated"] = self._current_timestamp()
             await self.db.update("trades", trade["trade_id"], trade)  # Sync with database
-            self.monitored_trades.append(trade)
+            if trade not in self.monitored_trades:
+                self.monitored_trades.append(trade)
         except Exception as e:
-            self.logger.error(f"Error executing trade {trade['trade_id']}: {e}")
+            self.logger.error(f"Error executing trade {trade['trade_id']}: {e}", exc_info=True)
 
     async def close_trade(self, trade: Dict):
         """
@@ -67,13 +70,12 @@ class TradeMonitor:
         """
         try:
             self.logger.info(f"Closing trade: {trade}")
-            # Simulated exchange API call
             trade["status"] = "closed"
             trade["last_updated"] = self._current_timestamp()
             await self.db.update("trades", trade["trade_id"], trade)  # Sync with database
             self.monitored_trades = [t for t in self.monitored_trades if t["trade_id"] != trade["trade_id"]]
         except Exception as e:
-            self.logger.error(f"Error closing trade {trade['trade_id']}: {e}")
+            self.logger.error(f"Error closing trade {trade['trade_id']}: {e}", exc_info=True)
 
     async def add_or_update_trade(self, trade: Dict):
         """
@@ -90,7 +92,7 @@ class TradeMonitor:
 
             await self.db.update("trades", trade["trade_id"], trade)  # Ensure database sync
         except Exception as e:
-            self.logger.error(f"Error adding/updating trade {trade['trade_id']}: {e}")
+            self.logger.error(f"Error adding/updating trade {trade['trade_id']}: {e}", exc_info=True)
 
     async def deactivate_trade(self, trade_id: str):
         """
@@ -107,7 +109,39 @@ class TradeMonitor:
             else:
                 self.logger.warning(f"Trade {trade_id} not found in monitoring.")
         except Exception as e:
-            self.logger.error(f"Error deactivating trade {trade_id}: {e}")
+            self.logger.error(f"Error deactivating trade {trade_id}: {e}", exc_info=True)
+
+    ### --- Hybrid Real-Time Streaming and Periodic Updates ---
+
+    async def monitor_asset(self, asset: str):
+        """
+        Streams real-time data for a specific asset and evaluates trades dynamically.
+        """
+        try:
+            async for update in self.exchange.watchTradesForSymbols([asset]):
+                await self.evaluate_trades(asset, update)
+        except asyncio.CancelledError:
+            self.logger.info(f"Streaming for {asset} stopped.")
+        except Exception as e:
+            self.logger.error(f"Error in streaming for asset {asset}: {e}", exc_info=True)
+
+    async def periodic_asset_review(self, assets: List[str], interval: int = 60):
+        """
+        Periodically fetches market data for assets and evaluates trades in batch.
+        """
+        try:
+            while True:
+                self.logger.info("Starting periodic asset review...")
+                market_data = await self.exchange.fetch_tickers(assets)
+                for asset, data in market_data.items():
+                    await self.evaluate_trades(asset, data)
+                await asyncio.sleep(interval)  # Wait before the next periodic check
+        except asyncio.CancelledError:
+            self.logger.info("Periodic asset review stopped.")
+        except Exception as e:
+            self.logger.error(f"Error in periodic asset review: {e}", exc_info=True)
+
+    ### --- Condition Evaluation ---
 
     def _check_entry_conditions(self, trade: Dict, market_data: Dict) -> bool:
         """
@@ -117,7 +151,7 @@ class TradeMonitor:
             entry_conditions = trade.get("entry_conditions", [])
             return all(self._evaluate_condition(market_data, condition) for condition in entry_conditions)
         except Exception as e:
-            self.logger.error(f"Error checking entry conditions for trade {trade['trade_id']}: {e}")
+            self.logger.error(f"Error checking entry conditions for trade {trade['trade_id']}: {e}", exc_info=True)
             return False
 
     def _check_exit_conditions(self, trade: Dict, market_data: Dict) -> bool:
@@ -128,7 +162,7 @@ class TradeMonitor:
             exit_conditions = trade.get("exit_conditions", [])
             return all(self._evaluate_condition(market_data, condition) for condition in exit_conditions)
         except Exception as e:
-            self.logger.error(f"Error checking exit conditions for trade {trade['trade_id']}: {e}")
+            self.logger.error(f"Error checking exit conditions for trade {trade['trade_id']}: {e}", exc_info=True)
             return False
 
     def _evaluate_condition(self, market_data: Dict, condition: Dict) -> bool:
@@ -142,19 +176,26 @@ class TradeMonitor:
             data_value = market_data.get(indicator)
             return self._evaluate_operator(data_value, operator, value)
         except Exception as e:
-            self.logger.error(f"Error evaluating condition: {e}")
+            self.logger.error(f"Error evaluating condition: {e}", exc_info=True)
             return False
 
-    def _evaluate_operator(self, a, operator, b) -> bool:
+    @staticmethod
+    def _evaluate_operator(a, operator, b) -> bool:
         """
         Compares values based on the given operator.
         """
-        ops = {"<": lambda x, y: x < y, ">": lambda x, y: x > y, "<=": lambda x, y: x <= y, ">=": lambda x, y: x >= y, "==": lambda x, y: x == y}
+        ops = {
+            "<": lambda x, y: x < y,
+            ">": lambda x, y: x > y,
+            "<=": lambda x, y: x <= y,
+            ">=": lambda x, y: x >= y,
+            "==": lambda x, y: x == y
+        }
         return ops.get(operator, lambda x, y: False)(a, b)
 
-    def _current_timestamp(self):
+    @staticmethod
+    def _current_timestamp() -> str:
         """
         Returns the current timestamp in ISO format.
         """
-        from datetime import datetime
-        return datetime.utcnow().isoformat()
+        return datetime.now(timezone.utc).isoformat()
