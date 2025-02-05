@@ -7,21 +7,29 @@ import time
 import os
 
 class StrategyInterpreter:
-    def __init__(self, api_key, cache_ttl=3600):
-        self.api_key = os.getenv("OPENAI_API_KEY")
+    """
+    Interprets a natural-language trading strategy description into structured JSON.
+    Uses OpenAI's API (via openai.ChatCompletion.create) with fallback, validates the returned JSON
+    against a defined schema, and caches responses for a configurable time-to-live (cache_ttl).
+    """
+
+    def __init__(self, api_key: str, cache_ttl: int = 3600):
+        # Read API key from environment if not provided directly
+        self.api_key = os.getenv("OPENAI_API_KEY", api_key)
         self.schema = self._get_strategy_schema()
         self.logger = logging.getLogger(self.__class__.__name__)
         self._configure_logger()
-        self.cache = {}
-        self.cache_ttl = cache_ttl
+        self.cache = {}  # Simple in-memory cache: {cache_key: {"data": strategy_data, "timestamp": ...}}
+        self.cache_ttl = cache_ttl  # Cache time-to-live in seconds
         openai.api_key = self.api_key
 
     def _configure_logger(self):
         """Configure logger with default settings if not already set."""
-        logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+        logging.basicConfig(level=logging.INFO, 
+                            format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 
     def _generate_cache_key(self, description: str) -> str:
-        """Generate a unique cache key for the description."""
+        """Generate a unique cache key for the given strategy description."""
         return hashlib.md5(description.encode()).hexdigest()
 
     def _get_strategy_schema(self) -> dict:
@@ -80,26 +88,36 @@ class StrategyInterpreter:
             },
         }
 
-    
+    def _is_cache_expired(self, cache_entry: dict) -> bool:
+        """Determines if a cache entry is expired based on cache_ttl."""
+        return (time.time() - cache_entry["timestamp"]) > self.cache_ttl
+
     def interpret(self, description: str) -> dict:
-        """Interprets a strategy description into JSON using GPT and validates it."""
+        """
+        Interprets a strategy description into JSON using OpenAI and validates it.
+        Checks cache first; if not cached or expired, calls OpenAI.
+        """
         cache_key = self._generate_cache_key(description)
         if cache_key in self.cache and not self._is_cache_expired(self.cache[cache_key]):
-            self.logger.info("Returning cached result.")
+            self.logger.info("Returning cached strategy interpretation result.")
             return self.cache[cache_key]["data"]
 
-        # Call OpenAI API
         prompt = self.create_prompt(description)
         system_role = "You are an expert crypto trading assistant. Convert strategies to JSON."
-        strategy_json = self.call_openai_with_fallback(prompt, system_role)
-
+        # Use openai.ChatCompletion.create (which is awaitable) per the updated API
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=[
+                {"role": "system", "content": system_role},
+                {"role": "user", "content": prompt}
+            ]
+        )
         try:
+            strategy_json = response["choices"][0]["message"]["content"]
             strategy_data = json.loads(strategy_json)
-            
-            # Validate JSON
+            # Validate the returned JSON against the schema
             validate(instance=strategy_data, schema=self.schema)
             self.logger.info(f"Strategy interpreted successfully: {strategy_data}")
-
             # Cache the valid data
             self.cache[cache_key] = {"data": strategy_data, "timestamp": time.time()}
             return strategy_data
@@ -108,45 +126,28 @@ class StrategyInterpreter:
             raise ValueError(f"Error interpreting strategy: {e}")
 
     def create_prompt(self, description: str) -> str:
-        """Generates a detailed prompt for OpenAI."""
+        """Generates a detailed prompt for OpenAI based on the provided strategy description."""
         return f"""
         Convert the following trading strategy description into a trading strategy in JSON format matching this schema:
         {json.dumps(self.schema, indent=2)}
 
         Ensure that:
         - Indicators, assets, and conditions are compatible with Backtrader, CCXT, and BitGet.
-        - Choose asset pairs that are available on the exchange and market type specified. Usually this is ASSETUSDT.
-        - Entry and exit conditions are fully specified and realistic. Thesed should be specified in the conditions field. Use multiples of these if you need to interpret a complicated strategy.
-        - Risk management settings include stop-loss, take-profit, and trailing stop-loss. Check if the user has specified the risk level in the prompt.
-        - Make sure you have enough technical information in the returned JSON to support the generation of the correct trades and parameters matching the strategy.
-        - The strategy is designed for the spot, futures, or margin market type. Please specify it in the market_type field.
-        - Ensure that the strategy is profitable and has an extremely high risk/reward ratio unless specificed otherwise in the prompt.
-        - Ensure that the strategy is not overfit to historical data and is robust to changing market conditions.
-        - Specify the timeframe for each condition in the conditions field.
-        - Be aware of the limitations of the trading platform and the exchange you are using. (such as leverage limits for each market type and trading pair)
-        - Write a short description of the strategy, including the rationale behind it in the strategy_rationale field.
-        - Include any additional parameters or settings that are necessary for the strategy to function correctly
-        - The response contains only valid JSON, no additional explanations or text. Encode strings where necessary.
-        - Conditions include all relevant trading pairs, up to 10 pairs for futures and 10 pairs for spot and margin.
-        - Use new and innovative strategies that are not commonly found in the market to compliment the user's request
-        - Ensure the strategy takes in to consideration anti-whale and anti-bot measures to prevent manipulation of the market
+        - Choose asset pairs that are available on the exchange and match the specified market type (e.g., ASSET/USDT).
+        - Entry and exit conditions are fully specified and realistic; use multiple conditions if needed.
+        - Risk management settings include stop-loss, take-profit, and trailing stop-loss.
+        - Include sufficient technical details to support generating correct trades and parameters.
+        - Specify the market type (spot, futures, or margin) in the 'market_type' field.
+        - Ensure the strategy has a profitable and high risk/reward ratio unless stated otherwise.
+        - Avoid overfitting to historical data; ensure robustness to changing market conditions.
+        - Specify the timeframe for each condition in the 'conditions' field.
+        - Account for limitations such as leverage limits for the chosen market and trading pair.
+        - Include a short rationale in 'strategy_rationale' describing the strategy and its approach.
+        - The response must contain only valid JSON—no extra commentary or text.
+        - Use innovative strategies that are not common in the market.
+        - Incorporate anti-whale and anti-bot measures.
         
-         Strategy Description:
+        Strategy Description:
         {description}
         JSON:
         """
-
-    def call_openai_with_fallback(self, prompt: str, system_role: str) -> str:
-        """Call OpenAI's API with a fallback mechanism."""
-        models = ["gpt-4", "gpt-3.5-turbo"]
-        for model in models:
-            try:
-                response = openai.ChatCompletion.create(
-                    model=model,
-                    messages=[{"role": "system", "content": system_role}, {"role": "user", "content": prompt}],
-                )
-                return response.choices[0].message.content
-            except openai.OpenAIError as e:
-                self.logger.warning(f"Model {model} failed with error: {e}")
-                continue
-        raise ValueError("Both gpt-4 and gpt-3.5-turbo failed or are unavailable.")

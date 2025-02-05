@@ -22,6 +22,7 @@ class StrategyManager:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         self.trade_monitor = trade_monitor
         self.market_monitor = market_monitor
+        self.db = redis_db
 
     @staticmethod
     def generate_unique_id() -> str:
@@ -100,6 +101,21 @@ class StrategyManager:
             return strategy
         except Exception as e:
             self.logger.error(f"Failed to load strategy '{strategy_id}': {e}")
+            raise
+
+    async def save_trades_to_strategy(self, strategy_id: str, trades: List[Dict]):
+        """
+        Saves trades to the strategy record in Redis.
+        """
+        try:
+            key = f"{self.STRATEGY_PREFIX}{strategy_id}"
+            if not await self.redis_client.exists(key):
+                raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
+
+            await self.redis_client.hset(key, "trades", json.dumps(trades))
+            self.logger.info(f"Trades saved to strategy {strategy_id}.")
+        except Exception as e:
+            self.logger.error(f"Failed to save trades to strategy {strategy_id}: {e}")
             raise
 
     async def activate_strategy(self, strategy_id: str):
