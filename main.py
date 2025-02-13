@@ -12,7 +12,7 @@ async def async_main():
     LOGGING_FILE = 'trading_bot.log'
 
     logging.basicConfig(
-        level=logging.DEBUG,
+        level=logging.INFO,
         format=LOGGING_FORMAT,
         handlers=[
             logging.FileHandler(LOGGING_FILE),

@@ -60,7 +60,6 @@ class PerformanceManager:
                     if start_dt <= datetime.strptime(data.get('date', '1970-01-01 00:00:00'), '%Y-%m-%d %H:%M:%S') <= end_dt
                 ]
 
-            self.logger.debug(f"Retrieved {len(performance_data)} performance records for strategy '{strategy_name}'.")
             return performance_data
         except Exception as e:
             self.logger.error(f"Failed to retrieve performance data for strategy '{strategy_name}': {e}", exc_info=True)

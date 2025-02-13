@@ -86,7 +86,7 @@ class TradeSuggestionManager:
         {json.dumps(strategy_json, indent=2)}
 
         ### Market Data:
-        {json.dumps(market_data, indent=2)}
+        {market_data}
 
         ### Budget:
         {budget}

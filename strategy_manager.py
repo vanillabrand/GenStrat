@@ -1,8 +1,10 @@
 from redis.asyncio import Redis
+import trade_suggestion_manager
 import json
 import uuid
 import logging
 from typing import Dict, List, Union
+import asyncio
 
 
 class StrategyManager:
@@ -14,7 +16,7 @@ class StrategyManager:
     STRATEGY_PREFIX = "strategy:"
     TRADE_PREFIX = "trade:"
 
-    def __init__(self, trade_monitor=None, market_monitor=None, redis_host='localhost', redis_port=6379, redis_db=0):
+    def __init__(self, trade_manager=None, trade_monitor=None, market_monitor=None, redis_host='localhost', redis_port=6379, redis_db=0):
         self.redis_client = Redis(
             host=redis_host, port=redis_port, db=redis_db, decode_responses=True
         )
@@ -22,6 +24,7 @@ class StrategyManager:
         logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
         self.trade_monitor = trade_monitor
         self.market_monitor = market_monitor
+        self.trade_manager = trade_manager
         self.db = redis_db
 
     @staticmethod
@@ -35,6 +38,10 @@ class StrategyManager:
         """
         self.trade_monitor = trade_monitor
         self.market_monitor = market_monitor
+
+    def setTradeSuggestionManager(self, trade_suggestion_manager):
+        self.trade_suggestion_manager = trade_suggestion_manager
+
 
     def validate_strategy_data(self, strategy_data: Dict):
         """
@@ -129,7 +136,7 @@ class StrategyManager:
 
             await self.redis_client.hset(f"{self.STRATEGY_PREFIX}{strategy_id}", "active", "True")
             self.logger.info(f"Strategy '{strategy_id}' activated.")
-
+            
             trades = strategy["trades"]
             if self.market_monitor:
                 await self.market_monitor.monitor_strategy(strategy, trades)
@@ -155,7 +162,81 @@ class StrategyManager:
             self.logger.info(f"Strategy '{strategy_id}' is no longer monitored.")
         except Exception as e:
             self.logger.error(f"Failed to deactivate strategy '{strategy_id}': {e}")
+
+    async def activate_strategy_with_trades(self, strategy_id: str, budget: float) -> str:
+        """
+        Activates a strategy and ensures that it has valid trades.
+        If no trades exist or if all trades are inactive/cancelled,
+        queries TradeSuggestionManager to generate new trades based on the strategy.
+        These trades are then added via TradeManager and the MarketMonitor is instructed
+        to start monitoring the strategy.
+        
+        Returns:
+            The strategy_id on successful activation.
+        
+        Raises:
+            Exception if activation fails or no trades can be generated.
+        """
+        try:
+            # Load the strategy from storage.
+            strategy = await self.load_strategy(strategy_id)
+            if strategy is None:
+                raise ValueError(f"Strategy {strategy_id} not found.")
+            
+            # Check if strategy is already active.
+            # (Assume strategy["active"] is stored as a string "True" or "False" or a Boolean.)
+            if str(strategy.get("active", "False")).lower() == "true":
+                raise ValueError(f"Strategy {strategy_id} is already active.")
+
+            # Mark the strategy as active in the database.
+            await self._activate_in_db(strategy_id)
+
+            # Retrieve all trades for this strategy.
+            all_trades = self.trade_manager.get_strategy_trades(strategy_id)
+            # Filter trades to keep those that are not inactive or cancelled.
+            valid_trades = [t for t in all_trades if t.get("status", "").lower() not in ("inactive", "cancelled")]
+
+            # If no valid trades exist, generate new trades using TradeSuggestionManager.
+            if not valid_trades:
+                self.logger.info(f"No active trades found for strategy {strategy_id}; generating new trades.")
+                # Create trade suggestion manager instance and generate trades
+                suggestion_mgr = trade_suggestion_manager.TradeSuggestionManager(self.trade_manager)
+                new_trades = await self.market_monitor.trade_suggestion_manager.generate_trades(
+                    strategy_id, strategy.get("data", {}), {}, budget
+                )
+                if not new_trades:
+                    raise ValueError("Trade suggestion engine did not generate any trades. Please review strategy parameters.")
+                # Add each new trade to the system via TradeManager.
+                for trade in new_trades:
+                    await self.trade_manager.add_trade(trade)
+                valid_trades = new_trades
+
+            # Start live market monitoring if MarketMonitor is available.
+            if hasattr(self, "market_monitor") and self.market_monitor is not None:
+                await self.market_monitor.monitor_strategy(strategy, valid_trades)
+
+            self.logger.info(f"Strategy {strategy_id} activated with {len(valid_trades)} trades.")
+            return strategy_id
+
+        except Exception as e:
+            self.logger.error(f"Failed to activate strategy {strategy_id} with trades: {e}", exc_info=True)
             raise
+
+
+    async def _activate_in_db(self, strategy_id: str):
+            """
+            Internal method to mark the strategy as active in the database.
+            This method should update the strategy record (for example, in Redis) so that its "active" flag is set.
+            """
+            try:
+                # Example for Redis (adjust according to your actual database interface)
+                key = f"strategy:{strategy_id}"
+                # Assume self.redis_client is already set up in your StrategyManager.
+                await asyncio.to_thread(self.redis_client.hset, key, "active", "True")
+                self.logger.info(f"Strategy {strategy_id} marked as active in the database.")
+            except Exception as e:
+                self.logger.error(f"Failed to mark strategy {strategy_id} as active in DB: {e}", exc_info=True)
+                raise
 
     async def list_strategies(self) -> List[Dict]:
         """
@@ -212,4 +293,26 @@ class StrategyManager:
                 await self.market_monitor.update_monitored_strategy(updated_strategy)
         except Exception as e:
             self.logger.error(f"Failed to edit strategy '{strategy_id}': {e}")
+            raise
+
+    async def remove_strategy(self, strategy_id: str):
+        """
+        Removes a strategy from Redis along with its associated trades.
+        Raises a ValueError if the strategy does not exist.
+        """
+        key = f"{self.STRATEGY_PREFIX}{strategy_id}"
+        try:
+            exists = await self.redis_client.exists(key)
+            if not exists:
+                raise ValueError(f"Strategy with ID '{strategy_id}' does not exist.")
+            # Delete the strategy record.
+            await self.redis_client.delete(key)
+            self.logger.info(f"Strategy '{strategy_id}' removed successfully.")
+            
+            # Optional: Remove from MarketMonitor if available.
+            if self.market_monitor and hasattr(self.market_monitor, 'deactivate_strategy'):
+                await self.market_monitor.deactivate_strategy(strategy_id)
+            
+        except Exception as e:
+            self.logger.error(f"Failed to remove strategy '{strategy_id}': {e}", exc_info=True)
             raise

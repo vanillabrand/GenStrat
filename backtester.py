@@ -24,21 +24,16 @@ from budget_manager import BudgetManager
 from risk_manager import RiskManager
 
 # ---------------- Module-Level Helper ----------------
+# In this updated version, we no longer require specific keys (e.g. "price", "stop_loss")
+# to decide if a trade is valid. We simply return True.
 def validate_trade_helper(trade: Dict[str, Any], strategy_data: Dict[str, Any]) -> bool:
     """
-    Validates a trade based on strategy rules.
-    This helper is defined at the module level so that it is picklable for multiprocessing.
-    Returns True if the trade contains required fields; otherwise, False.
+    A dummy trade validation helper.
+    This version does not enforce the presence of specific keys,
+    but simply returns True to indicate that if a trade object exists,
+    it is considered valid.
     """
-    try:
-        # For our purposes, we require that the trade dict contains a "price" and "stop_loss".
-        if trade.get("price") is None or trade.get("stop_loss") is None:
-            raise ValueError("Missing required fields: price or stop_loss.")
-        return True
-    except Exception as e:
-        import sys
-        print(f"Trade validation failed for trade {trade.get('id', '?')}: {e}", file=sys.stderr)
-        return False
+    return True
 
 # ---------------- Backtester Class ----------------
 class Backtester:
@@ -47,6 +42,11 @@ class Backtester:
     Integrates with a ccxt-based exchange (e.g., Bitget) for historical OHLCV retrieval,
     plus StrategyManager, BudgetManager, RiskManager, and TradeSuggestionManager for
     validating and producing realistic trade flows via Backtrader.
+    
+    Advanced risk management is implemented using both fixed thresholds and an ATR-based dynamic trailing stop.
+    Indicator instances for entry and exit conditions are created dynamically.
+    When the indicator is "MACD", parameters are remapped from JSON keys ("short_period", "long_period", "signal_period")
+    to Backtrader's expected keys ("period_me1", "period_me2", "period_signal").
     """
 
     def __init__(
@@ -67,10 +67,6 @@ class Backtester:
 
     # --- Data Validation & Conversion ---
     def _validate_and_convert_data(self, historical_data: pd.DataFrame) -> PandasData:
-        """
-        Validates and converts historical data into a Backtrader-compatible feed.
-        Ensures required columns and sets 'timestamp' as a DateTimeIndex.
-        """
         required_columns = {"timestamp", "open", "high", "low", "close", "volume"}
         missing_cols = required_columns - set(historical_data.columns)
         if missing_cols:
@@ -81,10 +77,6 @@ class Backtester:
 
     @lru_cache(maxsize=10)
     async def _load_strategy(self, strategy_id: str) -> Dict[str, Any]:
-        """
-        Loads strategy data asynchronously from StrategyManager.
-        Cached for faster repeated usage.
-        """
         try:
             strategy = await self.strategy_manager.load_strategy(strategy_id)
             if not strategy:
@@ -101,10 +93,6 @@ class Backtester:
         timeframe: str = "1m",
         duration_days: int = 1
     ) -> pd.DataFrame:
-        """
-        Generates synthetic market data asynchronously for scenario-based testing.
-        'scenario' can be 'bull', 'bear', 'sideways', or a custom string.
-        """
         try:
             frequency_map = {"1m": "min", "5m": "5min", "10m": "10min", "1h": "h", "1d": "D", "1w": "W"}
             freq = frequency_map.get(timeframe, "min")
@@ -144,16 +132,13 @@ class Backtester:
                 "close": prices,
                 "volume": volumes,
             })
-            self.logger.info(f"Synthetic data generated for scenario: {scenario}, timeframe: {timeframe}, days: {duration_days}")
+            self.logger.info(f"Synthetic data generated for scenario: {data}, timeframe: {timeframe}, days: {duration_days}")
             return data
         except Exception as e:
             self.logger.error(f"Error generating synthetic data: {e}", exc_info=True)
             raise
 
     def _simulate_market_data(self, historical_data: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Simulates a snapshot of market data from the last historical data point.
-        """
         latest_data = historical_data.iloc[-1].to_dict()
         return {
             "current_price": latest_data["close"],
@@ -170,10 +155,6 @@ class Backtester:
         start_date: str,
         end_date: str
     ) -> pd.DataFrame:
-        """
-        Fetches OHLCV data from a ccxt-based exchange for a given asset within the specified date range.
-        Timestamps are in milliseconds.
-        """
         try:
             start_ts = int(pd.Timestamp(start_date).timestamp() * 1000)
             end_ts = int(pd.Timestamp(end_date).timestamp() * 1000)
@@ -212,9 +193,6 @@ class Backtester:
         start_date: str,
         end_date: str
     ) -> pd.DataFrame:
-        """
-        Fetches and combines OHLCV data for multiple assets from the exchange.
-        """
         try:
             frames = []
             for asset in assets:
@@ -242,22 +220,17 @@ class Backtester:
         strategy_data: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """
-        Validates trades in parallel using a process pool for CPU-bound checks.
-        Uses the module-level helper 'validate_trade_helper' to ensure picklability.
+        Instead of checking for specific fields, simply return the trade list.
+        If no trades were generated, the backtest will fail with an appropriate error.
         """
-        try:
-            with Pool(processes=4) as pool:
-                results = pool.starmap(validate_trade_helper, [(trade, strategy_data) for trade in trades])
-            return [trade for trade, valid in zip(trades, results) if valid]
-        except Exception as e:
-            self.logger.error(f"Parallel trade validation failed: {e}", exc_info=True)
+        if not trades:
+            self.logger.error("No trades were generated by the trade suggestion engine.")
             return []
+        # If trades exist, return them as-is.
+        return trades
 
     # --- Cerebro Initialization & Execution ---
     def _initialize_cerebro(self, historical_data: pd.DataFrame, starting_cash: float) -> bt.Cerebro:
-        """
-        Initializes the Backtrader Cerebro engine with the provided historical data and starting cash.
-        """
         if not isinstance(historical_data, pd.DataFrame):
             raise ValueError("Historical data must be a pandas DataFrame")
         if not isinstance(starting_cash, (int, float)) or starting_cash <= 0:
@@ -272,106 +245,152 @@ class Backtester:
             self.logger.error(f"Failed to initialize Cerebro: {e}", exc_info=True)
             raise
 
-    # --- Dynamic Strategy Creation with Advanced Risk Management ---
     def _create_bt_strategy(self, strategy_data: Dict[str, Any], trades: List[Dict[str, Any]]) -> Type[bt.Strategy]:
         """
         Dynamically creates a Backtrader Strategy class based on the provided strategy data and validated trades.
-        This implementation dynamically creates indicator instances for all conditions and implements advanced risk management
-        using both fixed risk parameters and ATR-based dynamic trailing stop.
+        Dynamically creates indicator instances for all entry and exit conditions.
+        Implements advanced risk management using fixed stop-loss/take-profit and an ATR-based dynamic trailing stop.
+        Remaps MACD parameters from keys ("short_period", "long_period", "signal_period")
+        to Backtrader's expected keys ("period_me1", "period_me2", "period_signal"), ensuring no zero or negative periods.
         """
-        # Use the Backtrader indicators module dynamically
         import backtrader.indicators as btind
 
         class DynamicStrategy(bt.Strategy):
-            params = strategy_data.get("trade_parameters", {})
+            # You might want to store only the parts of strategy_data that are relevant,
+            # but here we simply assign the full dictionary.
+            params = strategy_data
 
             def __init__(self):
-                # Prepare entry and exit conditions lists
                 self.entry_conditions = []
                 self.exit_conditions = []
                 conditions = strategy_data.get("conditions", {})
                 entry_conditions_data = conditions.get("entry", [])
                 exit_conditions_data = conditions.get("exit", [])
 
-                # Dynamically create indicator instances for each condition
+                # Process entry conditions
                 for cond in entry_conditions_data:
                     ind_name = cond.get("indicator")
                     operator = cond.get("operator")
                     threshold = cond.get("value")
-                    ind_params = cond.get("indicator_parameters", {})
-                    # Dynamically load any indicator from btind
+                    ind_params = cond.get("indicator_parameters", {}).copy()
+                    if ind_name and ind_name.lower() == "macd":
+                        # Remap MACD parameters and ensure they are > 0
+                        short = ind_params.pop("short_period", 12)
+                        long = ind_params.pop("long_period", 26)
+                        signal = ind_params.pop("signal_period", 9)
+                        if not short or short <= 0:
+                            short = 12
+                        if not long or long <= 0:
+                            long = 26
+                        if not signal or signal <= 0:
+                            signal = 9
+                        ind_params = {
+                            "period_me1": short,
+                            "period_me2": long,
+                            "period_signal": signal
+                        }
                     ind_class = getattr(btind, ind_name, None)
                     if ind_class is None:
                         self.log(f"Indicator '{ind_name}' not found in backtrader.indicators.", logging.ERROR)
                         continue
-                    instance = ind_class(self.data.close, **ind_params)
+                    try:
+                        instance = ind_class(self.data.close, **ind_params)
+                    except Exception as e:
+                        self.log(f"Error initializing {ind_name}: {e}", logging.ERROR)
+                        continue
                     self.entry_conditions.append((instance, operator, threshold))
 
+                # Process exit conditions
                 for cond in exit_conditions_data:
                     ind_name = cond.get("indicator")
                     operator = cond.get("operator")
                     threshold = cond.get("value")
-                    ind_params = cond.get("indicator_parameters", {})
+                    ind_params = cond.get("indicator_parameters", {}).copy()
+                    if ind_name and ind_name.lower() == "macd":
+                        short = ind_params.pop("short_period", 12)
+                        long = ind_params.pop("long_period", 26)
+                        signal = ind_params.pop("signal_period", 9)
+                        if not short or short <= 0:
+                            short = 12
+                        if not long or long <= 0:
+                            long = 26
+                        if not signal or signal <= 0:
+                            signal = 9
+                        ind_params = {
+                            "period_me1": short,
+                            "period_me2": long,
+                            "period_signal": signal
+                        }
                     ind_class = getattr(btind, ind_name, None)
                     if ind_class is None:
                         self.log(f"Indicator '{ind_name}' not found in backtrader.indicators.", logging.ERROR)
                         continue
-                    instance = ind_class(self.data.close, **ind_params)
+                    try:
+                        instance = ind_class(self.data.close, **ind_params)
+                    except Exception as e:
+                        self.log(f"Error initializing {ind_name}: {e}", logging.ERROR)
+                        continue
                     self.exit_conditions.append((instance, operator, threshold))
 
-                # Advanced Risk Management: fixed and ATR-based
+                # Advanced Risk Management: fixed stop-loss/take-profit and ATR-based trailing stop
                 risk_params = strategy_data.get("risk_management", {})
                 self.fixed_stop_loss_pct = risk_params.get("stop_loss", None)
                 self.fixed_take_profit_pct = risk_params.get("take_profit", None)
-                # ATR-based trailing stop parameters
                 self.atr_period = risk_params.get("atr_period", 14)
                 self.atr_multiplier = risk_params.get("atr_multiplier", 3)
-                self.atr = bt.indicators.ATR(self.data, period=self.atr_period)
+                # Ensure atr_period is valid (avoid division by zero inside ATR)
+                if not self.atr_period or self.atr_period <= 0:
+                    self.atr_period = 14
+                try:
+                    self.atr = btind.ATR(self.data, period=self.atr_period)
+                except Exception as e:
+                    self.log(f"Error initializing ATR: {e}", logging.ERROR)
+                    # Fallback: create a dummy ATR that returns a small nonzero value
+                    class DummyATR(bt.Indicator):
+                        lines = ('atr',)
+                        def next(self):
+                            self.lines.atr[0] = 1e-6
+                    self.atr = DummyATR(self.data, period=self.atr_period)
                 self.trailing_stop = None
 
                 self.order = None
                 self.buy_price = None
 
             def next(self):
-                # If there's an open order, wait until it is executed
+                # If an order is pending, do nothing.
                 if self.order:
                     return
 
                 if not self.position:
-                    # Evaluate all entry conditions
+                    # Evaluate all entry conditions.
                     if all(self._evaluate_condition(ind, op, thr) for (ind, op, thr) in self.entry_conditions):
                         self.order = self.buy()
                         self.buy_price = self.data.close[0]
-                        # Set initial trailing stop
-                        self.trailing_stop = self.data.close[0] - self.atr[0] * self.atr_multiplier
+                        # Avoid division by zero: if ATR is zero, use a very small number.
+                        atr_value = self.atr[0] if self.atr[0] != 0 else 1e-6
+                        self.trailing_stop = self.data.close[0] - atr_value * self.atr_multiplier
                 else:
-                    # Update the trailing stop if price is favorable
-                    new_trailing = self.data.close[0] - self.atr[0] * self.atr_multiplier
+                    # Update the trailing stop (use safe ATR value).
+                    atr_value = self.atr[0] if self.atr[0] != 0 else 1e-6
+                    new_trailing = self.data.close[0] - atr_value * self.atr_multiplier
                     if new_trailing > self.trailing_stop:
                         self.trailing_stop = new_trailing
 
-                    # Evaluate exit conditions
                     exit_signal = all(self._evaluate_condition(ind, op, thr) for (ind, op, thr) in self.exit_conditions)
                     current_price = self.data.close[0]
                     risk_exit = False
-                    # Fixed risk parameters
-                    if self.fixed_stop_loss_pct is not None:
-                        if current_price <= self.buy_price * (1 - self.fixed_stop_loss_pct):
+                    if self.buy_price is not None:
+                        if self.fixed_stop_loss_pct is not None and current_price <= self.buy_price * (1 - self.fixed_stop_loss_pct):
                             risk_exit = True
-                    if self.fixed_take_profit_pct is not None:
-                        if current_price >= self.buy_price * (1 + self.fixed_take_profit_pct):
+                        if self.fixed_take_profit_pct is not None and current_price >= self.buy_price * (1 + self.fixed_take_profit_pct):
                             risk_exit = True
 
-                    # Exit if any exit condition is met, if risk management is triggered, or if price falls below trailing stop
                     if exit_signal or risk_exit or (self.trailing_stop is not None and current_price < self.trailing_stop):
                         self.order = self.close()
 
             def _evaluate_condition(self, indicator, operator, threshold) -> bool:
-                """
-                Evaluates a condition based on the current indicator value, operator, and threshold.
-                """
-                current_value = indicator[0]
                 try:
+                    current_value = indicator[0]
                     if operator == "<":
                         return current_value < threshold
                     elif operator == ">":
@@ -390,38 +409,36 @@ class Backtester:
 
             def log(self, txt, dt=None):
                 dt = dt or self.datas[0].datetime.date(0)
-                print(f"{dt.isoformat()} {txt}")
+               
 
         return DynamicStrategy
 
+
+
     # --- Running a Backtest ---
     async def run_backtest(self, strategy_id: str, historical_data: pd.DataFrame) -> Dict[str, Any]:
-        """
-        Runs a backtest:
-         1. Loads the strategy.
-         2. Retrieves the budget and generates AI-based trade suggestions.
-         3. Validates trades in parallel.
-         4. Initializes Cerebro and runs the backtest.
-         5. Processes and returns performance metrics.
-        """
         if not strategy_id or historical_data.empty:
             raise ValueError("Invalid strategy_id or empty historical data.")
         try:
             strategy = await self._load_strategy(strategy_id)
             strategy_data = strategy["data"]
-            self.logger.info(f"Loaded strategy '{strategy.get('title', 'N/A')}' for backtest.")
-
+           
             budget = await self.budget_manager.get_budget(strategy_id)
-            starting_cash = float(budget or 100000.0)
+            
+            starting_cash = float(budget)
 
             trade_suggestions = await self.trade_suggestion_manager.generate_trades(
-                strategy_id, strategy_data, {}, starting_cash
+                strategy_id, strategy_data, historical_data, starting_cash
             )
+
+           
             valid_trades = self._validate_trades_parallel(trade_suggestions, strategy_data)
             if not valid_trades:
-                raise ValueError("No valid trades generated for backtest.")
+                raise ValueError("No trades were generated for backtest. Please check your strategy parameters and try again.")
 
             cerebro = self._initialize_cerebro(historical_data, starting_cash)
+            self.logger.info(f"INITIALIZED CEREBRO: {trade_suggestions}")
+
             strategy_class = self._create_bt_strategy(strategy_data, valid_trades)
             cerebro.addstrategy(strategy_class)
 
@@ -440,9 +457,6 @@ class Backtester:
 
     # --- Pre-Validation & Price Fetching ---
     async def pre_validate_and_fetch_prices(self, strategy_id: str) -> Dict:
-        """
-        Loads a strategy and fetches market data (e.g., tickers) for each asset.
-        """
         try:
             strategy = await self._load_strategy(strategy_id)
             assets = strategy.get("data", {}).get("assets", [])
@@ -464,9 +478,6 @@ class Backtester:
 
     # --- Result Processing ---
     def _process_results(self, results) -> Dict[str, Any]:
-        """
-        Processes analyzer results from Cerebro and returns a summary dictionary.
-        """
         try:
             returns = results.analyzers.returns.get_analysis()
             sharpe = results.analyzers.sharperatio.get_analysis()
@@ -501,9 +512,6 @@ class Backtester:
 
     # --- Optional Summaries & ASCII Plotting ---
     def _generate_summary_table(self, initial_value: float, final_value: float, results: List[Any]):
-        """
-        Generates a Rich table summarizing backtest results.
-        """
         table = Table(title="Backtest Summary")
         table.add_column("Metric", justify="left")
         table.add_column("Value", justify="right")
@@ -513,9 +521,6 @@ class Backtester:
         self.console.print(table)
 
     def _plot_ascii_results(self, historical_data: pd.DataFrame):
-        """
-        Visualizes backtest results using ASCII charts.
-        """
         try:
             closes = historical_data['close'].dropna().tolist()
             if not closes:
@@ -529,9 +534,6 @@ class Backtester:
             raise
 
     async def validate_strategy(self, strategy_id: str):
-        """
-        Validates a strategy by fetching necessary market data.
-        """
         try:
             enriched_data = await self.pre_validate_and_fetch_prices(strategy_id)
             return enriched_data

@@ -53,8 +53,7 @@ class UserInterface:
         self.budget_manager = BudgetManager()
         self.trade_manager = TradeManager()
         self.performance_manager = PerformanceManager(self.trade_manager)
-        self.strategy_manager = StrategyManager(self.trade_manager)
-
+       
         # Initialize TradeExecutor
         self.trade_executor = TradeExecutor(
             exchange=self.exchange,
@@ -68,6 +67,9 @@ class UserInterface:
             trade_monitor=self.trade_manager,
             trade_suggestion_manager=None  # Placeholder; will be set below
         )
+
+        self.strategy_manager = StrategyManager(self.trade_manager, self.performance_manager, self.market_monitor)
+
         self.trade_suggestion_manager = TradeSuggestionManager(
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
             strategy_manager=self.strategy_manager,
@@ -77,11 +79,14 @@ class UserInterface:
         )
         self.market_monitor.trade_suggestion_manager = self.trade_suggestion_manager
 
+        self.strategy_manager.setTradeSuggestionManager(self.trade_suggestion_manager)
+
         # Initialize Dashboard and Backtester
         self.dashboard = Dashboard(
             strategy_manager=self.strategy_manager,
             trade_manager=self.trade_manager,
-            performance_manager=self.performance_manager
+            performance_manager=self.performance_manager,
+            exchange=self.exchange
         )
         self.market_monitor.dashboard = self.dashboard
         self.strategy_manager.set_monitoring(self.market_monitor)
@@ -249,25 +254,33 @@ class UserInterface:
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
     async def list_strategies(self):
-        """Lists all saved strategies in a formatted table."""
+        """Lists all saved strategies in a formatted table with extended details."""
         try:
             strategies = await self.strategy_manager.list_strategies()
             if not strategies:
                 self.console.print("[bold red]No strategies found.[/bold red]")
                 return
-            table = Table(title="Saved Strategies", title_style="bold cyan")
-            table.add_column("Index", justify="center", style="magenta")
-            table.add_column("Title", style="cyan")
-            table.add_column("Active", style="green", justify="center")
-            table.add_column("Market Type", style="yellow", justify="center")
-            table.add_column("Assets", style="blue")
-            table.add_column("Trades", justify="center", style="red")
+            table = Table(title="Saved Strategies", title_style="bold cyan", expand=True)
+            table.add_column("Option", justify="center", style="magenta", no_wrap=True)
+            table.add_column("Title", style="cyan", overflow="fold")
+            table.add_column("Description", style="green", overflow="fold")
+            table.add_column("Rationale", style="yellow", overflow="fold")
+            table.add_column("Assets", style="blue", overflow="fold")
+            table.add_column("Trades", justify="center", style="red", no_wrap=True)
+            
             for idx, strat in enumerate(strategies, start=1):
-                assets = ", ".join(strat.get("assets", []))
-                active_str = "Yes" if strat.get("active") else "No"
-                num_trades = str(len(strat.get("trades", [])))
-                market_type = strat.get("market_type", "Unknown")
-                table.add_row(str(idx), strat.get("title", "N/A"), active_str, market_type, assets, num_trades)
+                title = strat.get("title", "N/A")
+                description = strat.get("description", "N/A")
+                rationale = strat.get("rationale", strat.get("strategy_rationale", "N/A"))
+                assets = ", ".join(strat.get("assets", [])) if strat.get("assets") else "None"
+                # Try to get trades from the strategy itself; otherwise, use TradeManager
+                if "trades" in strat:
+                    num_trades = str(len(strat.get("trades", [])))
+                else:
+                    trades_list = self.trade_manager.get_strategy_trades(strat.get("id"))
+                    num_trades = str(len(trades_list))
+                table.add_row(str(idx), title, description, rationale, assets, num_trades)
+                
             self.console.print(table)
         except Exception as e:
             self.logger.error(f"Failed to list strategies: {e}", exc_info=True)
@@ -299,7 +312,7 @@ class UserInterface:
             if budget <= 0:
                 self.console.print(f"[bold red]No budget assigned to strategy '{strategy.get('title')}'. Please assign a budget first.[/bold red]")
                 return
-            await self.strategy_manager.activate_strategy(strategy_id)
+            await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
             self.console.print(f"[bold green]Strategy '{strategy.get('title')}' activated successfully.[/bold green]")
         except Exception as e:
             self.logger.error(f"Failed to activate strategy: {e}", exc_info=True)
