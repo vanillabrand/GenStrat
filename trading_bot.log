@@ -10460,3 +10460,951 @@ Traceback (most recent call last):
     suggestion_mgr = trade_suggestion_manager.TradeSuggestionManager(self.trade_manager)
                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 TypeError: TradeSuggestionManager.__init__() missing 4 required positional arguments: 'trade_manager', 'strategy_manager', 'exchange', and 'market_monitor'
+2025-02-14 15:30:29,337 [INFO] BudgetManager: Budget for '118052fa-83ad-4666-b517-ac889ae9d2c1' set to 1000.00.
+2025-02-14 15:30:33,369 [ERROR] StrategyManager: Failed to load strategy '118052fa-83ad-4666-b517-ac889ae9d2c1': 'trades'
+2025-02-14 15:30:33,370 [ERROR] StrategyManager: Failed to activate strategy 118052fa-83ad-4666-b517-ac889ae9d2c1 with trades: 'trades'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 182, in activate_strategy_with_trades
+    strategy = await self.load_strategy(strategy_id)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/strategy_manager.py", line 106, in load_strategy
+    strategy["trades"] = json.loads(strategy["trades"])
+                                    ~~~~~~~~^^^^^^^^^^
+KeyError: 'trades'
+2025-02-14 15:30:33,371 [ERROR] root: Failed to activate strategy: 'trades'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 315, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 182, in activate_strategy_with_trades
+    strategy = await self.load_strategy(strategy_id)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/strategy_manager.py", line 106, in load_strategy
+    strategy["trades"] = json.loads(strategy["trades"])
+                                    ~~~~~~~~^^^^^^^^^^
+KeyError: 'trades'
+2025-02-14 15:33:15,999 [ERROR] dashboard: Key listener error: 'TradeManager' object has no attribute 'close_all_strategy_trades'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 269, in _listen_for_keys
+    await self.handle_input(key)
+  File "/workspaces/GenStrat/dashboard.py", line 296, in handle_input
+    await self.trade_manager.close_all_strategy_trades(strategy.get("id"))
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'TradeManager' object has no attribute 'close_all_strategy_trades'. Did you mean: 'close_strategy_trades'?
+2025-02-14 15:33:18,074 [INFO] root: Shutting down application.
+2025-02-14 15:33:18,209 [ERROR] asyncio: Task exception was never retrieved
+future: <Task finished name='Task-2' coro=<Dashboard._listen_for_keys() done, defined at /workspaces/GenStrat/dashboard.py:260> exception=KeyboardInterrupt()>
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/main.py", line 61, in <module>
+    main()
+  File "/workspaces/GenStrat/main.py", line 53, in main
+    asyncio.run(async_main())  # Launch the application
+    ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/base_events.py", line 671, in run_until_complete
+    self.run_forever()
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/base_events.py", line 638, in run_forever
+    self._run_once()
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/base_events.py", line 1971, in _run_once
+    handle._run()
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "/workspaces/GenStrat/dashboard.py", line 269, in _listen_for_keys
+    await self.handle_input(key)
+  File "/workspaces/GenStrat/dashboard.py", line 298, in handle_input
+    raise KeyboardInterrupt()
+KeyboardInterrupt
+2025-02-14 15:33:24,652 [INFO] root: Shutting down application.
+2025-02-14 15:33:33,549 [ERROR] StrategyManager: Failed to load strategy 'd41a2090-4320-4548-b913-5b341a59dab9': 'trades'
+2025-02-14 15:33:33,549 [ERROR] StrategyManager: Failed to activate strategy d41a2090-4320-4548-b913-5b341a59dab9 with trades: 'trades'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 182, in activate_strategy_with_trades
+    strategy = await self.load_strategy(strategy_id)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/strategy_manager.py", line 106, in load_strategy
+    strategy["trades"] = json.loads(strategy["trades"])
+                                    ~~~~~~~~^^^^^^^^^^
+KeyError: 'trades'
+2025-02-14 15:33:33,550 [ERROR] root: Failed to activate strategy: 'trades'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 315, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 182, in activate_strategy_with_trades
+    strategy = await self.load_strategy(strategy_id)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/strategy_manager.py", line 106, in load_strategy
+    strategy["trades"] = json.loads(strategy["trades"])
+                                    ~~~~~~~~^^^^^^^^^^
+KeyError: 'trades'
+2025-02-14 15:35:13,919 [INFO] StrategyInterpreter: Strategy interpreted successfully: {'strategy_name': 'Simple Futures Momentum', 'strategy_rationale': 'This strategy utilizes momentum signals from the MACD indicator to enter long or short positions on the ETH/USDT futures market. The strategy is designed to capture relatively small, consistent gains and minimize losses through stringent risk management.', 'market_type': 'futures', 'assets': ['ETH/USDT'], 'trade_parameters': {'leverage': 5, 'order_type': 'limit', 'position_size': 0.25}, 'conditions': {'entry': [{'indicator': 'MACD', 'operator': '>', 'value': 0, 'timeframe': '5m', 'indicator_parameters': {'short_period': 12, 'long_period': 26, 'signal_period': 9}}], 'exit': [{'indicator': 'MACD', 'operator': '<', 'value': 0, 'timeframe': '5m', 'indicator_parameters': {'short_period': 12, 'long_period': 26, 'signal_period': 9}}]}, 'risk_management': {'stop_loss': 0.02, 'take_profit': 0.04, 'trailing_stop_loss': 0.01}}
+2025-02-14 15:35:13,920 [INFO] StrategyManager: Strategy 'hihi' with ID 'f9886b86-dfc8-4f37-a1c8-261e03b42020' saved successfully.
+2025-02-14 15:35:59,650 [INFO] BudgetManager: Budget for 'f9886b86-dfc8-4f37-a1c8-261e03b42020' set to 100000.00.
+2025-02-14 15:36:04,851 [INFO] StrategyManager: Strategy f9886b86-dfc8-4f37-a1c8-261e03b42020 marked as active in the database.
+2025-02-14 15:36:04,852 [INFO] StrategyManager: No active trades found for strategy f9886b86-dfc8-4f37-a1c8-261e03b42020; generating new trades.
+2025-02-14 15:36:04,852 [ERROR] StrategyManager: Failed to activate strategy f9886b86-dfc8-4f37-a1c8-261e03b42020 with trades: TradeSuggestionManager.__init__() missing 4 required positional arguments: 'trade_manager', 'strategy_manager', 'exchange', and 'market_monitor'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 203, in activate_strategy_with_trades
+    suggestion_mgr = trade_suggestion_manager.TradeSuggestionManager(self.trade_manager)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: TradeSuggestionManager.__init__() missing 4 required positional arguments: 'trade_manager', 'strategy_manager', 'exchange', and 'market_monitor'
+2025-02-14 15:36:04,853 [ERROR] root: Failed to activate strategy: TradeSuggestionManager.__init__() missing 4 required positional arguments: 'trade_manager', 'strategy_manager', 'exchange', and 'market_monitor'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 315, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 203, in activate_strategy_with_trades
+    suggestion_mgr = trade_suggestion_manager.TradeSuggestionManager(self.trade_manager)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: TradeSuggestionManager.__init__() missing 4 required positional arguments: 'trade_manager', 'strategy_manager', 'exchange', and 'market_monitor'
+2025-02-14 15:37:03,759 [INFO] root: Shutting down application.
+2025-02-16 01:42:19,907 [INFO] root: Shutting down application.
+2025-02-16 01:42:20,149 [ERROR] asyncio: Task exception was never retrieved
+future: <Task finished name='Task-2' coro=<Dashboard._listen_for_keys() done, defined at /workspaces/GenStrat/dashboard.py:260> exception=KeyboardInterrupt()>
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/main.py", line 61, in <module>
+    main()
+  File "/workspaces/GenStrat/main.py", line 53, in main
+    asyncio.run(async_main())  # Launch the application
+    ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/base_events.py", line 671, in run_until_complete
+    self.run_forever()
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/base_events.py", line 638, in run_forever
+    self._run_once()
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/base_events.py", line 1971, in _run_once
+    handle._run()
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "/workspaces/GenStrat/dashboard.py", line 269, in _listen_for_keys
+    await self.handle_input(key)
+  File "/workspaces/GenStrat/dashboard.py", line 298, in handle_input
+    raise KeyboardInterrupt()
+KeyboardInterrupt
+2025-02-16 01:44:16,438 [INFO] StrategyManager: Strategy b3d264f4-fc86-4810-8d93-f4a4411017a8 marked as active in the database.
+2025-02-16 01:44:16,439 [INFO] StrategyManager: No active trades found for strategy b3d264f4-fc86-4810-8d93-f4a4411017a8; generating new trades.
+2025-02-16 01:44:16,439 [ERROR] StrategyManager: Failed to activate strategy b3d264f4-fc86-4810-8d93-f4a4411017a8 with trades: TradeSuggestionManager.__init__() missing 4 required positional arguments: 'trade_manager', 'strategy_manager', 'exchange', and 'market_monitor'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 203, in activate_strategy_with_trades
+    suggestion_mgr = trade_suggestion_manager.TradeSuggestionManager(self.trade_manager)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: TradeSuggestionManager.__init__() missing 4 required positional arguments: 'trade_manager', 'strategy_manager', 'exchange', and 'market_monitor'
+2025-02-16 01:44:16,443 [ERROR] root: Failed to activate strategy: TradeSuggestionManager.__init__() missing 4 required positional arguments: 'trade_manager', 'strategy_manager', 'exchange', and 'market_monitor'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 315, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 203, in activate_strategy_with_trades
+    suggestion_mgr = trade_suggestion_manager.TradeSuggestionManager(self.trade_manager)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: TradeSuggestionManager.__init__() missing 4 required positional arguments: 'trade_manager', 'strategy_manager', 'exchange', and 'market_monitor'
+2025-02-16 01:45:22,319 [INFO] root: Shutting down application.
+2025-02-16 01:46:52,102 [INFO] StrategyInterpreter: Strategy interpreted successfully: {'strategy_name': 'High Risk Momentum', 'strategy_rationale': 'This strategy leverages momentum indicators to enter and exit positions in top 3 cryptocurrencies, while implementing risk management through stop-loss and take-profit orders.', 'market_type': 'futures', 'assets': ['BTC/USDT', 'ETH/USDT', 'BNB/USDT'], 'trade_parameters': {'leverage': 20, 'order_type': 'limit', 'position_size': 0.5}, 'conditions': {'entry': [{'indicator': 'MACD', 'operator': '>', 'value': 0, 'timeframe': '1h', 'indicator_parameters': {'period': 26}}, {'indicator': 'RSI', 'operator': '<', 'value': 30, 'timeframe': '1h', 'indicator_parameters': {'period': 14}}], 'exit': [{'indicator': 'MACD', 'operator': '<', 'value': 0, 'timeframe': '1h', 'indicator_parameters': {'period': 26}}, {'indicator': 'RSI', 'operator': '>', 'value': 70, 'timeframe': '1h', 'indicator_parameters': {'period': 14}}]}, 'risk_management': {'stop_loss': 10, 'take_profit': 30, 'trailing_stop_loss': 5}}
+2025-02-16 01:46:52,103 [INFO] StrategyManager: Strategy 'Demon' with ID 'c9c85921-27bb-409d-9cb0-d00e24a37306' saved successfully.
+2025-02-16 01:47:10,009 [INFO] BudgetManager: Budget for 'c9c85921-27bb-409d-9cb0-d00e24a37306' set to 10000.00.
+2025-02-16 01:47:19,441 [INFO] StrategyManager: Strategy c9c85921-27bb-409d-9cb0-d00e24a37306 marked as active in the database.
+2025-02-16 01:47:19,442 [INFO] StrategyManager: No active trades found for strategy c9c85921-27bb-409d-9cb0-d00e24a37306; generating new trades.
+2025-02-16 01:47:19,442 [ERROR] StrategyManager: Failed to activate strategy c9c85921-27bb-409d-9cb0-d00e24a37306 with trades: TradeSuggestionManager.__init__() missing 4 required positional arguments: 'trade_manager', 'strategy_manager', 'exchange', and 'market_monitor'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 203, in activate_strategy_with_trades
+    suggestion_mgr = trade_suggestion_manager.TradeSuggestionManager(self.trade_manager)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: TradeSuggestionManager.__init__() missing 4 required positional arguments: 'trade_manager', 'strategy_manager', 'exchange', and 'market_monitor'
+2025-02-16 01:47:19,443 [ERROR] root: Failed to activate strategy: TradeSuggestionManager.__init__() missing 4 required positional arguments: 'trade_manager', 'strategy_manager', 'exchange', and 'market_monitor'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 315, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 203, in activate_strategy_with_trades
+    suggestion_mgr = trade_suggestion_manager.TradeSuggestionManager(self.trade_manager)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: TradeSuggestionManager.__init__() missing 4 required positional arguments: 'trade_manager', 'strategy_manager', 'exchange', and 'market_monitor'
+2025-02-16 02:20:21,286 [INFO] root: Shutting down application.
+2025-02-16 02:20:53,395 [INFO] StrategyManager: Strategy c9c85921-27bb-409d-9cb0-d00e24a37306 marked as active in the database.
+2025-02-16 02:20:53,395 [ERROR] StrategyManager: Failed to activate strategy c9c85921-27bb-409d-9cb0-d00e24a37306 with trades: 'NoneType' object has no attribute 'get_strategy_trades'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 191, in activate_strategy_with_trades
+    all_trades = self.trade_manager.get_strategy_trades(strategy_id)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'get_strategy_trades'
+2025-02-16 02:20:53,396 [ERROR] root: Failed to activate strategy: 'NoneType' object has no attribute 'get_strategy_trades'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 313, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 191, in activate_strategy_with_trades
+    all_trades = self.trade_manager.get_strategy_trades(strategy_id)
+                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'get_strategy_trades'
+2025-02-16 19:59:03,808 [INFO] StrategyInterpreter: Strategy interpreted successfully: {'strategy_name': 'Simple Moving Average Crossover', 'strategy_rationale': "This strategy is based on dual moving average crossover, a common trading technique. It buys when a short-term moving average crosses above a long-term moving average and sells when the short-term moving average crosses back below the long-term moving average. This strategy may not be innovative, but it's well tested and has potential to make steady steady gains while mitigating disastrous losses.", 'market_type': 'futures', 'assets': ['BTC/USDT'], 'trade_parameters': {'leverage': 10, 'order_type': 'market', 'position_size': 1}, 'conditions': {'entry': [{'indicator': 'sma', 'operator': '>', 'value': 'long_sma', 'timeframe': '4h', 'indicator_parameters': {'period': 14}}], 'exit': [{'indicator': 'sma', 'operator': '<', 'value': 'long_sma', 'timeframe': '4h', 'indicator_parameters': {'period': 14}}]}, 'risk_management': {'stop_loss': 0.05, 'take_profit': 0.1, 'trailing_stop_loss': 0.02}}
+2025-02-16 19:59:03,890 [INFO] StrategyManager: Strategy 'Hello' with ID 'fa66f02d-08fa-4aa1-9018-dec0c9cf9e96' saved successfully.
+2025-02-16 19:59:19,370 [INFO] BudgetManager: Budget for 'fa66f02d-08fa-4aa1-9018-dec0c9cf9e96' set to 1000.00.
+2025-02-16 19:59:26,090 [INFO] StrategyManager: Strategy fa66f02d-08fa-4aa1-9018-dec0c9cf9e96 marked as active in the database.
+2025-02-16 19:59:26,092 [INFO] StrategyManager: No active trades found for strategy fa66f02d-08fa-4aa1-9018-dec0c9cf9e96; generating new trades.
+2025-02-16 19:59:26,092 [ERROR] StrategyManager: Failed to activate strategy fa66f02d-08fa-4aa1-9018-dec0c9cf9e96 with trades: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 174, in activate_strategy_with_trades
+    new_trades = await self.market_monitor.trade_suggestion_manager.generate_trades(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-16 19:59:26,096 [ERROR] root: Failed to activate strategy: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 313, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 174, in activate_strategy_with_trades
+    new_trades = await self.market_monitor.trade_suggestion_manager.generate_trades(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-16 20:33:49,140 [INFO] root: Shutting down application.
+2025-02-16 20:34:40,984 [INFO] BudgetManager: Budget for 'fa66f02d-08fa-4aa1-9018-dec0c9cf9e96' set to 1000.00.
+2025-02-16 20:35:18,831 [INFO] Backtester: Synthetic data generated for scenario:               timestamp        open        high         low       close  volume
+0   2023-01-01 00:00:00  100.227784  100.244023   99.863548  100.227784     818
+1   2023-01-01 01:00:00  100.586811  100.913712  100.193974  100.586811     222
+2   2023-01-01 02:00:00  100.725775  101.187547  100.692199  100.725775     965
+3   2023-01-01 03:00:00  101.197599  101.283455  100.963908  101.197599     501
+4   2023-01-01 04:00:00  101.907658  102.297866  101.740050  101.907658     741
+..                  ...         ...         ...         ...         ...     ...
+235 2023-01-10 19:00:00  225.265274  225.742207  224.828633  225.265274     311
+236 2023-01-10 20:00:00  226.246315  226.743908  226.141121  226.246315     780
+237 2023-01-10 21:00:00  226.603376  227.057732  226.459502  226.603376     304
+238 2023-01-10 22:00:00  227.545326  227.560478  227.065010  227.545326     539
+239 2023-01-10 23:00:00  228.343557  228.702351  227.900317  228.343557     907
+
+[240 rows x 6 columns], timeframe: 1h, days: 10
+2025-02-16 20:35:31,792 [INFO] openai: message='OpenAI API response' path=https://api.openai.com/v1/chat/completions processing_ms=12218 request_id=req_c314ae002ecff7d472c4ace2332fa2c2 response_code=200
+2025-02-16 20:35:31,813 [INFO] Backtester: INITIALIZED CEREBRO: [{'trade_id': 'trade_01', 'strategy_name': 'Simple Moving Average Crossover', 'strategy_id': 'strategy_01', 'asset': 'BTC/USDT', 'side': 'buy', 'trade_type': 'long', 'amount': 1, 'budget_allocation': 500.0, 'price': 100.227784, 'stop_loss': 95.216395, 'take_profit': 110.2505624, 'leverage': 10, 'market_type': 'futures', 'status': 'pending', 'order_type': 'market'}, {'trade_id': 'trade_02', 'strategy_name': 'Simple Moving Average Crossover', 'strategy_id': 'strategy_01', 'asset': 'BTC/USDT', 'side': 'sell', 'trade_type': 'short', 'amount': 1, 'budget_allocation': 500.0, 'price': 227.545326, 'stop_loss': 239.0225923, 'take_profit': 204.7907934, 'leverage': 10, 'market_type': 'futures', 'status': 'pending', 'order_type': 'market'}]
+2025-02-16 20:35:31,858 [INFO] Backtester: Backtest results: {'initial_value': 0.0, 'final_value': 0.0, 'return': -100.0, 'sharpe_ratio': None, 'max_drawdown': 0.0, 'total_trades': 1, 'won_trades': 0, 'lost_trades': 0, 'win_rate': 0.0}
+2025-02-16 20:35:31,860 [ERROR] root: Failed to run backtest: unsupported format string passed to NoneType.__format__
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 412, in run_backtest
+    self.console.print(f"Sharpe Ratio: {results.get('sharpe_ratio', 0.0):.2f}")
+                                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: unsupported format string passed to NoneType.__format__
+2025-02-16 20:36:44,795 [INFO] root: Shutting down application.
+2025-02-16 20:36:44,922 [ERROR] asyncio: Task exception was never retrieved
+future: <Task finished name='Task-5' coro=<Dashboard._listen_for_keys() done, defined at /workspaces/GenStrat/dashboard.py:260> exception=KeyboardInterrupt()>
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/main.py", line 61, in <module>
+    main()
+  File "/workspaces/GenStrat/main.py", line 53, in main
+    asyncio.run(async_main())  # Launch the application
+    ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/base_events.py", line 671, in run_until_complete
+    self.run_forever()
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/base_events.py", line 638, in run_forever
+    self._run_once()
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/base_events.py", line 1971, in _run_once
+    handle._run()
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "/workspaces/GenStrat/dashboard.py", line 269, in _listen_for_keys
+    await self.handle_input(key)
+  File "/workspaces/GenStrat/dashboard.py", line 298, in handle_input
+    raise KeyboardInterrupt()
+KeyboardInterrupt
+2025-02-16 20:37:08,728 [INFO] StrategyManager: Strategy fa66f02d-08fa-4aa1-9018-dec0c9cf9e96 marked as active in the database.
+2025-02-16 20:37:08,728 [INFO] StrategyManager: No active trades found for strategy fa66f02d-08fa-4aa1-9018-dec0c9cf9e96; generating new trades.
+2025-02-16 20:37:08,729 [ERROR] StrategyManager: Failed to activate strategy fa66f02d-08fa-4aa1-9018-dec0c9cf9e96 with trades: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 174, in activate_strategy_with_trades
+    new_trades = await self.market_monitor.trade_suggestion_manager.generate_trades(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-16 20:37:08,729 [ERROR] root: Failed to activate strategy: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 308, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 174, in activate_strategy_with_trades
+    new_trades = await self.market_monitor.trade_suggestion_manager.generate_trades(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-16 20:38:40,413 [INFO] StrategyManager: Strategy fa66f02d-08fa-4aa1-9018-dec0c9cf9e96 marked as active in the database.
+2025-02-16 20:38:40,413 [INFO] StrategyManager: No active trades found for strategy fa66f02d-08fa-4aa1-9018-dec0c9cf9e96; generating new trades.
+2025-02-16 20:38:40,414 [ERROR] StrategyManager: Failed to activate strategy fa66f02d-08fa-4aa1-9018-dec0c9cf9e96 with trades: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 174, in activate_strategy_with_trades
+    new_trades = await self.market_monitor.trade_suggestion_manager.generate_trades(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-16 20:38:40,414 [ERROR] root: Failed to activate strategy: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 308, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 174, in activate_strategy_with_trades
+    new_trades = await self.market_monitor.trade_suggestion_manager.generate_trades(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-16 20:46:53,034 [INFO] root: Shutting down application.
+2025-02-16 21:13:51,676 [INFO] StrategyManager: Strategy fa66f02d-08fa-4aa1-9018-dec0c9cf9e96 marked as active in the database.
+2025-02-16 21:13:51,677 [INFO] StrategyManager: No active trades found for strategy fa66f02d-08fa-4aa1-9018-dec0c9cf9e96; generating new trades.
+2025-02-16 21:13:51,677 [ERROR] StrategyManager: Failed to activate strategy fa66f02d-08fa-4aa1-9018-dec0c9cf9e96 with trades: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 175, in activate_strategy_with_trades
+    new_trades = await self.market_monitor.trade_suggestion_manager.generate_trades(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-16 21:13:51,678 [ERROR] root: Failed to activate strategy: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 308, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 175, in activate_strategy_with_trades
+    new_trades = await self.market_monitor.trade_suggestion_manager.generate_trades(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-16 21:18:11,497 [INFO] root: Shutting down application.
+2025-02-16 23:32:28,648 [INFO] MarketMonitor: TradeSuggestionManager has been set in MarketMonitor.
+2025-02-16 23:36:44,541 [INFO] StrategyInterpreter: Strategy interpreted successfully: {'strategy_name': 'High Leverage Best Daily Performer', 'strategy_rationale': "Aims to maximize potential returns by taking high leverage positions in the day's best performing asset pairs. Implemented with anti-whale measures to prevent extreme volatility and price manipulation.", 'market_type': 'futures', 'assets': ['BTC/USDT', 'ETH/USDT', 'BNB/USDT', 'ADA/USDT'], 'trade_parameters': {'leverage': 20, 'order_type': 'limit', 'position_size': 1}, 'conditions': {'entry': [{'indicator': 'RSI', 'operator': '<', 'value': 30, 'timeframe': '1d', 'indicator_parameters': {'period': 14}}, {'indicator': 'MACD', 'operator': '>', 'value': 'signal', 'timeframe': '1d', 'indicator_parameters': {'period': 26, 'signal_period': 9}}], 'exit': [{'indicator': 'RSI', 'operator': '>', 'value': 70, 'timeframe': '1d', 'indicator_parameters': {'period': 14}}, {'indicator': 'MACD', 'operator': '<', 'value': 'signal', 'timeframe': '1d', 'indicator_parameters': {'period': 26, 'signal_period': 9}}]}, 'risk_management': {'stop_loss': 1, 'take_profit': 3, 'trailing_stop_loss': 0.5}}
+2025-02-16 23:36:44,541 [INFO] StrategyManager: Strategy 'Ration' with ID 'c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1' saved successfully.
+2025-02-16 23:37:14,705 [INFO] BudgetManager: Budget for 'c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1' set to 10000.00.
+2025-02-16 23:59:38,442 [INFO] root: Shutting down application.
+2025-02-16 23:59:44,661 [INFO] MarketMonitor: TradeSuggestionManager has been set in MarketMonitor.
+2025-02-17 00:00:07,419 [INFO] root: Shutting down application.
+2025-02-17 00:00:10,650 [INFO] MarketMonitor: TradeSuggestionManager has been set in MarketMonitor.
+2025-02-17 00:00:54,350 [INFO] root: Shutting down application.
+2025-02-17 00:01:29,430 [INFO] MarketMonitor: TradeSuggestionManager has been set in MarketMonitor.
+2025-02-17 00:03:15,489 [INFO] root: Shutting down application.
+2025-02-17 00:03:15,596 [ERROR] asyncio: Task exception was never retrieved
+future: <Task finished name='Task-2' coro=<Dashboard._listen_for_keys() done, defined at /workspaces/GenStrat/dashboard.py:261> exception=KeyboardInterrupt()>
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/main.py", line 61, in <module>
+    main()
+  File "/workspaces/GenStrat/main.py", line 53, in main
+    asyncio.run(async_main())  # Launch the application
+    ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/runners.py", line 194, in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/runners.py", line 118, in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/base_events.py", line 671, in run_until_complete
+    self.run_forever()
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/base_events.py", line 638, in run_forever
+    self._run_once()
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/base_events.py", line 1971, in _run_once
+    handle._run()
+  File "/usr/local/python/3.12.1/lib/python3.12/asyncio/events.py", line 84, in _run
+    self._context.run(self._callback, *self._args)
+  File "/workspaces/GenStrat/dashboard.py", line 270, in _listen_for_keys
+    self.logger.error(f"Key listener error: {e}", exc_info=True)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 299, in handle_input
+    def _calculate_pnl(self, trade: Dict) -> float:
+            ^^^^^^^^^^^^^^^^^^^^^^^^^
+KeyboardInterrupt
+2025-02-17 00:03:18,484 [INFO] MarketMonitor: TradeSuggestionManager has been set in MarketMonitor.
+2025-02-17 00:03:21,076 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:22,080 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:23,090 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:24,097 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:25,103 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:26,111 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:27,117 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:28,123 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:29,130 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:30,138 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:31,142 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:32,146 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:33,150 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:34,153 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:35,157 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:36,162 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:37,165 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:38,169 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:39,173 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:40,177 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:41,180 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:42,184 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:43,188 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:44,192 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:45,196 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:46,200 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:47,203 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:48,206 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:49,210 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:50,214 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:51,218 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:52,222 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:53,225 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:54,229 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:55,233 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:56,237 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False,wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:57,240 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False, wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:03:57,801 [INFO] root: Shutting down application.
+2025-02-17 00:03:59,865 [INFO] MarketMonitor: TradeSuggestionManager has been set in MarketMonitor.
+2025-02-17 00:04:02,013 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False, wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:04:03,018 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False, wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:04:04,023 [ERROR] dashboard: Dashboard update error: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/dashboard.py", line 44, in start
+    await self._update_dashboard(layout)
+  File "/workspaces/GenStrat/dashboard.py", line 114, in _update_dashboard
+    overview = self._create_strategy_overview(current_strategy)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/dashboard.py", line 139, in _create_strategy_overview
+    table = Table(show_header=False, wrap_columns=True)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+TypeError: Table.__init__() got an unexpected keyword argument 'wrap_columns'
+2025-02-17 00:04:04,102 [INFO] root: Shutting down application.
+2025-02-17 00:08:16,782 [INFO] MarketMonitor: TradeSuggestionManager has been set in MarketMonitor.
+2025-02-17 00:09:11,355 [INFO] root: Shutting down application.
+2025-02-17 00:09:59,860 [INFO] MarketMonitor: TradeSuggestionManager has been set in MarketMonitor.
+2025-02-17 00:11:36,653 [INFO] root: Shutting down application.
+2025-02-17 00:11:38,827 [INFO] MarketMonitor: TradeSuggestionManager has been set in MarketMonitor.
+2025-02-17 00:12:53,748 [INFO] root: Shutting down application.
+2025-02-17 00:12:58,374 [INFO] MarketMonitor: TradeSuggestionManager has been set in MarketMonitor.
+2025-02-17 00:13:14,364 [INFO] Backtester: Synthetic data generated for scenario:                 timestamp          open          high           low         close  volume
+0     2023-01-01 00:00:00    100.518718    100.762023    100.136258    100.518718     632
+1     2023-01-01 00:05:00    100.915104    100.949998    100.904060    100.915104     852
+2     2023-01-01 00:10:00    101.897844    102.394544    101.828422    101.897844     268
+3     2023-01-01 00:15:00    102.207877    102.583811    101.978688    102.207877     558
+4     2023-01-01 00:20:00    103.086320    103.566877    102.888188    103.086320     547
+...                   ...           ...           ...           ...           ...     ...
+28795 2023-04-10 23:35:00  15987.574975  15987.840179  15987.132705  15987.574975     298
+28796 2023-04-10 23:40:00  15987.931430  15988.017066  15987.628667  15987.931430     587
+28797 2023-04-10 23:45:00  15988.533601  15988.647451  15988.463656  15988.533601     179
+28798 2023-04-10 23:50:00  15988.733820  15988.911696  15988.623116  15988.733820     754
+28799 2023-04-10 23:55:00  15989.413555  15989.827439  15989.329007  15989.413555     217
+
+[28800 rows x 6 columns], timeframe: 5m, days: 100
+2025-02-17 00:13:37,097 [INFO] openai: message='OpenAI API response' path=https://api.openai.com/v1/chat/completions processing_ms=22241 request_id=req_34d93116ac50d5105d3770fce6516fe2 response_code=200
+2025-02-17 00:13:37,109 [INFO] Backtester: INITIALIZED CEREBRO: [{'trade_id': 'trade_1', 'strategy_name': 'High Leverage Best Daily Performer', 'strategy_id': 'HLBDP_1', 'asset': 'BTC/USDT', 'side': 'buy', 'trade_type': 'long', 'amount': 1, 'budget_allocation': 2500, 'price': 102.2, 'stop_loss': 101.2, 'take_profit': 105.6, 'leverage': 20, 'market_type': 'futures', 'status': 'pending', 'order_type': 'limit'}, {'trade_id': 'trade_2', 'strategy_name': 'High Leverage Best Daily Performer', 'strategy_id': 'HLBDP_2', 'asset': 'ETH/USDT', 'side': 'buy', 'trade_type': 'long', 'amount': 1, 'budget_allocation': 2500, 'price': 102.3, 'stop_loss': 101.3, 'take_profit': 105.9, 'leverage': 20, 'market_type': 'futures', 'status': 'pending', 'order_type': 'limit'}, {'trade_id': 'trade_3', 'strategy_name': 'High Leverage Best Daily Performer', 'strategy_id': 'HLBDP_3', 'asset': 'BNB/USDT', 'side': 'buy', 'trade_type': 'long', 'amount': 1, 'budget_allocation': 2500, 'price': 102.4, 'stop_loss': 101.4, 'take_profit': 106.2, 'leverage': 20, 'market_type': 'futures', 'status': 'pending', 'order_type': 'limit'}, {'trade_id': 'trade_4', 'strategy_name': 'High Leverage Best Daily Performer', 'strategy_id': 'HLBDP_4', 'asset': 'ADA/USDT', 'side': 'buy', 'trade_type': 'long', 'amount': 1, 'budget_allocation': 2500, 'price': 102.5, 'stop_loss': 101.5, 'take_profit': 106.5, 'leverage': 20, 'market_type': 'futures', 'status': 'pending', 'order_type': 'limit'}]
+2025-02-17 00:13:40,336 [ERROR] Backtester: Backtest failed for strategy_id='c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1': float division by zero
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/backtester.py", line 450, in run_backtest
+    results = cerebro.run()
+              ^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/cerebro.py", line 1132, in run
+    runstrat = self.runstrategies(iterstrat)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/cerebro.py", line 1298, in runstrategies
+    self._runonce(runstrats)
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/cerebro.py", line 1657, in _runonce
+    strat._once()
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/lineiterator.py", line 297, in _once
+    indicator._once()
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/lineiterator.py", line 297, in _once
+    indicator._once()
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/linebuffer.py", line 630, in _once
+    self.oncestart(self._minperiod - 1, self._minperiod)
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/lineroot.py", line 165, in oncestart
+    self.once(start, end)
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/linebuffer.py", line 755, in once
+    self._once_op(start, end)
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/linebuffer.py", line 772, in _once_op
+    dst[i] = op(srca[i], srcb[i])
+             ^^^^^^^^^^^^^^^^^^^^
+ZeroDivisionError: float division by zero
+2025-02-17 00:13:40,338 [ERROR] root: Failed to run backtest: float division by zero
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 407, in run_backtest
+    results = await self.backtester.run_backtest(strategy_id, historical_data)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/workspaces/GenStrat/backtester.py", line 450, in run_backtest
+    results = cerebro.run()
+              ^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/cerebro.py", line 1132, in run
+    runstrat = self.runstrategies(iterstrat)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/cerebro.py", line 1298, in runstrategies
+    self._runonce(runstrats)
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/cerebro.py", line 1657, in _runonce
+    strat._once()
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/lineiterator.py", line 297, in _once
+    indicator._once()
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/lineiterator.py", line 297, in _once
+    indicator._once()
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/linebuffer.py", line 630, in _once
+    self.oncestart(self._minperiod - 1, self._minperiod)
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/lineroot.py", line 165, in oncestart
+    self.once(start, end)
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/linebuffer.py", line 755, in once
+    self._once_op(start, end)
+  File "/usr/local/python/3.12.1/lib/python3.12/site-packages/backtrader/linebuffer.py", line 772, in _once_op
+    dst[i] = op(srca[i], srcb[i])
+             ^^^^^^^^^^^^^^^^^^^^
+ZeroDivisionError: float division by zero
+2025-02-17 00:14:54,784 [INFO] StrategyManager: Strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1 marked as active in the database.
+2025-02-17 00:14:54,784 [INFO] StrategyManager: No active trades found for strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1; generating new trades.
+2025-02-17 00:14:54,785 [ERROR] StrategyManager: Failed to activate strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1 with trades: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 175, in activate_strategy_with_trades
+    new_trades = await self.market_monitor.trade_suggestion_manager.generate_trades(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-17 00:14:54,785 [ERROR] root: Failed to activate strategy: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 308, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 175, in activate_strategy_with_trades
+    new_trades = await self.market_monitor.trade_suggestion_manager.generate_trades(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-17 00:49:40,580 [INFO] root: Shutting down application.
+2025-02-17 00:49:42,825 [INFO] MarketMonitor: TradeSuggestionManager has been set in MarketMonitor.
+2025-02-17 00:49:51,869 [INFO] StrategyManager: Strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1 marked as active in the database.
+2025-02-17 00:49:51,870 [INFO] StrategyManager: No active trades found for strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1; generating new trades.
+2025-02-17 00:49:51,871 [ERROR] StrategyManager: Failed to activate strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1 with trades: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 175, in activate_strategy_with_trades
+    new_trades = await self.market_monitor.trade_suggestion_manager.generate_trades(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-17 00:49:51,871 [ERROR] root: Failed to activate strategy: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 309, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 175, in activate_strategy_with_trades
+    new_trades = await self.market_monitor.trade_suggestion_manager.generate_trades(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-17 00:50:37,635 [INFO] root: Shutting down application.
+2025-02-17 00:50:40,005 [INFO] MarketMonitor: TradeSuggestionManager has been set in MarketMonitor.
+2025-02-17 00:50:52,492 [INFO] StrategyManager: Strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1 marked as active in the database.
+2025-02-17 00:50:52,493 [INFO] StrategyManager: No active trades found for strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1; generating new trades.
+2025-02-17 00:50:52,493 [ERROR] StrategyManager: Failed to activate strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1 with trades: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 176, in activate_strategy_with_trades
+    if self.market_monitor.trade_suggestion_manager is None:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-17 00:50:52,494 [ERROR] root: Failed to activate strategy: 'NoneType' object has no attribute 'trade_suggestion_manager'
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 309, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 176, in activate_strategy_with_trades
+    if self.market_monitor.trade_suggestion_manager is None:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'trade_suggestion_manager'
+2025-02-17 00:51:40,196 [INFO] root: Shutting down application.
+2025-02-17 00:51:42,209 [INFO] MarketMonitor: TradeSuggestionManager has been set in MarketMonitor.
+2025-02-17 00:51:48,426 [INFO] StrategyManager: Strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1 marked as active in the database.
+2025-02-17 00:51:48,427 [INFO] StrategyManager: No active trades found for strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1; generating new trades.
+2025-02-17 00:51:48,427 [ERROR] StrategyManager: Failed to activate strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1 with trades: TradeSuggestionManager is not set in MarketMonitor.
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 177, in activate_strategy_with_trades
+    raise ValueError("TradeSuggestionManager is not set in MarketMonitor.")
+ValueError: TradeSuggestionManager is not set in MarketMonitor.
+2025-02-17 00:51:48,428 [ERROR] root: Failed to activate strategy: TradeSuggestionManager is not set in MarketMonitor.
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 309, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 177, in activate_strategy_with_trades
+    raise ValueError("TradeSuggestionManager is not set in MarketMonitor.")
+ValueError: TradeSuggestionManager is not set in MarketMonitor.
+2025-02-17 00:55:30,816 [INFO] root: Shutting down application.
+2025-02-17 00:55:33,064 [INFO] MarketMonitor: TradeSuggestionManager has been assigned to MarketMonitor.
+2025-02-17 00:55:50,601 [INFO] StrategyManager: Strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1 marked as active in the database.
+2025-02-17 00:55:50,602 [INFO] StrategyManager: No active trades found for strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1; generating new trades.
+2025-02-17 00:55:50,602 [ERROR] StrategyManager: Failed to activate strategy c399a1a1-9eac-4bfc-a1e0-fe4a4c9593a1 with trades: TradeSuggestionManager is not set in MarketMonitor.
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/strategy_manager.py", line 177, in activate_strategy_with_trades
+    raise ValueError("TradeSuggestionManager is not set in MarketMonitor.")
+ValueError: TradeSuggestionManager is not set in MarketMonitor.
+2025-02-17 00:55:50,602 [ERROR] root: Failed to activate strategy: TradeSuggestionManager is not set in MarketMonitor.
+Traceback (most recent call last):
+  File "/workspaces/GenStrat/user_interface.py", line 309, in activate_strategy
+    await self.strategy_manager.activate_strategy_with_trades(strategy_id, budget)
+  File "/workspaces/GenStrat/strategy_manager.py", line 177, in activate_strategy_with_trades
+    raise ValueError("TradeSuggestionManager is not set in MarketMonitor.")
+ValueError: TradeSuggestionManager is not set in MarketMonitor.

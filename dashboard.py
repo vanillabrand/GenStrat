@@ -70,7 +70,7 @@ class Dashboard:
         # Main area: split into upper and asset details panels
         layout["main"].split_column(
             Layout(name="upper"),
-            Layout(name="asset_details", size=7)  # Adjust height as needed
+            Layout(name="asset_details",minimum_size=10)  # Adjust height as needed
         )
         # Upper row: two columns (strategy_info and trades)
         layout["upper"].split_row(
@@ -137,15 +137,14 @@ class Dashboard:
     def _create_strategy_overview(self, strategy: Dict) -> Table:
         """Builds a table summarizing the current strategy's overview."""
         table = Table(show_header=False)
-        table.add_column("Metric", style="cyan")
-        table.add_column("Value", style="green")
+        table.add_column("Metric", style="cyan", no_wrap=False)
+        table.add_column("Value", style="green", no_wrap=False)
         status = "🟢 Active" if strategy.get("active", False) else "🔴 Inactive"
         table.add_row("Status", status)
         table.add_row("Market Type", str(strategy.get("market_type", "N/A")))
         assets = strategy.get("assets", [])
         table.add_row("Assets", ", ".join(assets) if assets else "None")
-        table.add_row("Created", strategy.get("created_at", "N/A"))
-        table.add_row("Last Updated", strategy.get("updated_at", "N/A"))
+        table.add_row("Rationale", strategy.get("rationale", "N/A"))
         return table
 
     def _create_trades_table(self, strategy_id: str) -> Table:
@@ -154,13 +153,13 @@ class Dashboard:
         This version does not filter out inactive or cancelled trades—it displays all.
         """
         table = Table(title="Trades")
-        table.add_column("ID", style="cyan")
-        table.add_column("Asset", style="green")
-        table.add_column("Type", style="magenta")
-        table.add_column("Entry", style="yellow")
-        table.add_column("Current", style="yellow")
-        table.add_column("P&L", justify="right")
-        table.add_column("Status", style="blue")
+        table.add_column("ID", style="cyan", no_wrap=False)
+        table.add_column("Asset", style="green", no_wrap=False)
+        table.add_column("Type", style="magenta", no_wrap=False)
+        table.add_column("Entry", style="yellow", no_wrap=False)
+        table.add_column("Current", style="yellow", no_wrap=False)
+        table.add_column("P&L", justify="right", no_wrap=False)
+        table.add_column("Status", style="blue", no_wrap=False)
         
         # Retrieve all trades for this strategy.
         trades = self.trade_manager.get_strategy_trades(strategy_id)

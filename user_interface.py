@@ -23,23 +23,19 @@ from strategy_interpreter import StrategyInterpreter
 from market_monitor import MarketMonitor
 from trade_executor import TradeExecutor
 from trade_suggestion_manager import TradeSuggestionManager
+from trade_monitor import TradeMonitor  # Ensure this is imported
 
 class UserInterface:
     """Handles terminal-based interaction for managing trading strategies with a modern, visually impressive interface."""
 
     # Updated ASCII art banner for "STRATGEN"
     ASCII_BANNER = r"""
-  ____  ____  ____  _____  _______ _____  
- / ___||  _ \|  _ \| ____|| ____|_   _| 
- \___ \| |_) | | | |  _|  |  _|   | |   
-  ___) |  __/| |_| | |___ | |___  | |   
- |____/|_|   |____/|_____||_____| |_|   
-                                         
-  ____  ____  _____  _____  _   _ 
- / ___||  _ \| ____|| ____|| \ | |
- \___ \| |_) |  _|  |  _|  |  \| |
-  ___) |  __/| |___ | |___ | |\  |
- |____/|_|   |_____||_____||_| \_|
+   ______________________________    ___________________________________ _______   
+ /   _____/\__    ___/\______   \  /  _  \__    ___/  _____/\_   _____/ \      \  
+ \_____  \   |    |    |       _/ /  /_\  \|    | /   \  ___ |    __)_  /   |   \ 
+ /        \  |    |    |    |   \/    |    \    | \    \_\  \|        \/    |    \
+/_______  /  |____|    |____|_  /\____|__  /____|  \______  /_______  /\____|__  /
+        \/                    \/         \/               \/        \/         \/ 
 """
 
     def __init__(self, exchange: Any, logger: Optional[logging.Logger] = None):
@@ -48,28 +44,30 @@ class UserInterface:
         self.layout = Layout()
         self.exchange = exchange
 
-        # Initialize managers (in dependency order)
+        # Instantiate core managers.
         self.risk_manager = RiskManager()
         self.budget_manager = BudgetManager()
         self.trade_manager = TradeManager()
         self.performance_manager = PerformanceManager(self.trade_manager)
-       
-        # Initialize TradeExecutor
-        self.trade_executor = TradeExecutor(
-            exchange=self.exchange,
-            trade_manager=self.trade_manager,
-            budget_manager=self.budget_manager
-        )
 
-        # Initialize MarketMonitor and TradeSuggestionManager
+        # Instantiate a dedicated TradeMonitor instance.
+        self.trade_monitor = TradeMonitor(db=None, exchange=self.exchange, market_monitor=None)
+
+        # Instantiate MarketMonitor with the dedicated TradeMonitor.
         self.market_monitor = MarketMonitor(
             exchange=self.exchange,
-            trade_monitor=self.trade_manager,
-            trade_suggestion_manager=None  # Placeholder; will be set below
+            trade_monitor=self.trade_monitor,  # Use our TradeMonitor instance.
+            trade_suggestion_manager=None  # Placeholder; will be set below.
         )
 
-        self.strategy_manager = StrategyManager(self.trade_manager, self.performance_manager, self.market_monitor)
+        # Instantiate StrategyManager with both TradeManager and the TradeMonitor.
+        self.strategy_manager = StrategyManager(
+            trade_manager=self.trade_manager,
+            trade_monitor=self.trade_monitor,
+            market_monitor=self.market_monitor
+        )
 
+        # Instantiate TradeSuggestionManager.
         self.trade_suggestion_manager = TradeSuggestionManager(
             openai_api_key=os.getenv("OPENAI_API_KEY", ""),
             strategy_manager=self.strategy_manager,
@@ -77,18 +75,16 @@ class UserInterface:
             exchange=self.exchange,
             market_monitor=self.market_monitor
         )
-        self.market_monitor.trade_suggestion_manager = self.trade_suggestion_manager
+        # Immediately assign the TradeSuggestionManager into MarketMonitor.
+        self.market_monitor.set_trade_suggestion_manager(self.trade_suggestion_manager)
 
-        self.strategy_manager.setTradeSuggestionManager(self.trade_suggestion_manager)
-
-        # Initialize Dashboard and Backtester
+        # Instantiate Dashboard and Backtester.
         self.dashboard = Dashboard(
             strategy_manager=self.strategy_manager,
             trade_manager=self.trade_manager,
             performance_manager=self.performance_manager,
             exchange=self.exchange
         )
-        self.market_monitor.dashboard = self.dashboard
         self.strategy_manager.set_monitoring(self.market_monitor)
         self.backtester = Backtester(
             self.strategy_manager,
@@ -133,7 +129,7 @@ class UserInterface:
         while True:
             try:
                 self.clear_screen()
-                self.console.print(self.create_main_menu())
+                self.console.print(await self.create_main_menu())
                 choice = (await ainput("\nSelect an option: ")).strip()
                 if not choice:
                     continue
@@ -144,7 +140,7 @@ class UserInterface:
                 self.logger.error(f"Error in main loop: {e}", exc_info=True)
                 await asyncio.sleep(1)
 
-    def create_main_menu(self) -> Panel:
+    async def create_main_menu(self) -> Panel:
         """Creates a visually impressive main menu panel with an ASCII banner and options table."""
         menu_table = Table(show_header=True, header_style="bold blue")
         menu_table.add_column("Option", justify="center", style="cyan", no_wrap=True)
@@ -254,7 +250,11 @@ class UserInterface:
             self.console.print(f"[bold red]Error: {e}[/bold red]")
 
     async def list_strategies(self):
-        """Lists all saved strategies in a formatted table with extended details."""
+        """
+        Lists all saved strategies in a formatted table with extended details.
+        Columns: Option, Strategy Title, Description, Rationale, Assets Used, Number of Trades.
+        Columns will wrap content and the table will expand to the terminal width.
+        """
         try:
             strategies = await self.strategy_manager.list_strategies()
             if not strategies:
@@ -267,20 +267,14 @@ class UserInterface:
             table.add_column("Rationale", style="yellow", overflow="fold")
             table.add_column("Assets", style="blue", overflow="fold")
             table.add_column("Trades", justify="center", style="red", no_wrap=True)
-            
             for idx, strat in enumerate(strategies, start=1):
                 title = strat.get("title", "N/A")
                 description = strat.get("description", "N/A")
                 rationale = strat.get("rationale", strat.get("strategy_rationale", "N/A"))
                 assets = ", ".join(strat.get("assets", [])) if strat.get("assets") else "None"
-                # Try to get trades from the strategy itself; otherwise, use TradeManager
-                if "trades" in strat:
-                    num_trades = str(len(strat.get("trades", [])))
-                else:
-                    trades_list = self.trade_manager.get_strategy_trades(strat.get("id"))
-                    num_trades = str(len(trades_list))
+                # Get number of trades from the stored strategy data.
+                num_trades = str(len(strat.get("trades", [])))
                 table.add_row(str(idx), title, description, rationale, assets, num_trades)
-                
             self.console.print(table)
         except Exception as e:
             self.logger.error(f"Failed to list strategies: {e}", exc_info=True)
