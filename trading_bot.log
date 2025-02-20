@@ -11408,3 +11408,10 @@ Traceback (most recent call last):
   File "/workspaces/GenStrat/strategy_manager.py", line 177, in activate_strategy_with_trades
     raise ValueError("TradeSuggestionManager is not set in MarketMonitor.")
 ValueError: TradeSuggestionManager is not set in MarketMonitor.
+2025-02-18 23:49:06,878 [ERROR] root: Application error: TradeManager.__init__() missing 1 required positional argument: 'trade_executor'
+2025-02-18 23:49:06,881 [INFO] root: Shutting down application.
+2025-02-20 00:28:20,150 [ERROR] root: Application error: TradeManager.__init__() missing 1 required positional argument: 'trade_executor'
+2025-02-20 00:28:20,152 [INFO] root: Shutting down application.
+2025-02-20 00:34:55,297 [ERROR] root: Application error: TradeManager.__init__() missing 1 required positional argument: 'trade_executor'
+2025-02-20 00:34:55,297 [INFO] root: Shutting down application.
+2025-02-20 00:35:56,181 [INFO] MarketMonitor: TradeSuggestionManager has been assigned to MarketMonitor.

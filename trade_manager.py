@@ -58,8 +58,12 @@ class TradeManager:
         else:
             self.logger.error(f"Trade {trade_id} does not exist.")
 
-    ### --- Trade Recording and State Management ---
 
+    def get_open_trades(self):
+        return self.open_trades
+
+    def get_closed_trades(self):
+        return self.closed_trades
     def record_trade(self, trade_data: Dict) -> Optional[str]:
         """Records a new trade in Redis."""
         try:
@@ -343,10 +347,9 @@ class TradeManager:
             self.logger.error(f"Failed to cleanup old trades: {e}")
             return 0
 
-    ### --- NEW METHODS FOR EXCHANGE & AI RECONCILIATION ---
-
     def sync_with_exchange(self, exchange_client, strategy_id=None):
         """
+        Reconciles local trades with the exchange.
         Reconciles local trades with the exchange. 
         Fetches status/fill info from the exchange for trades with an exchange_order_id.
         Updates local trades to match actual state on the exchange.
@@ -470,3 +473,21 @@ class TradeManager:
                     # Trigger a close or set a flag for exit
         except Exception as e:
             self.logger.error(f"Error during AI revalidation: {e}")
+
+    def execute_trade(self, trade):
+        result = self.trade_executor.execute_trade(trade)
+        if result:
+            self.open_trades.append(trade)
+
+    def close_trade(self, trade):
+        if trade in self.open_trades:
+            close_result = self.trade_executor.execute_trade(trade.create_closing_trade())
+            if close_result:
+                self.open_trades.remove(trade)
+                self.closed_trades.append(trade)
+
+    def get_open_trades(self):
+        return self.open_trades
+
+    def get_closed_trades(self):
+        return self.closed_trades
